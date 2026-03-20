@@ -110,7 +110,7 @@ class TestModuleRegistry:
         assert names == {"a:T1", "a:T2", "b:T3"}
 
     def test_namespace_collision_raises(self) -> None:
-        """Registering two different modules with the same namespace raises ValueError."""
+        """Registering two modules with the same namespace raises ValueError."""
         registry = ModuleRegistry()
         registry.register(_make_module("clash", ["clash:A"]))
         second = _make_module("clash", ["clash:B"])
@@ -203,14 +203,16 @@ class TestModuleRegistry:
         registry = ModuleRegistry()
         with patch("safe_agent.modules.registry.entry_points", return_value=[]):
             registry.discover()
-            with pytest.raises(RuntimeError, match="discover\\(\\) has already been called"):
+            with pytest.raises(
+                RuntimeError, match=r"discover\(\) has already been called"
+            ):
                 registry.discover()
 
     def test_discover_rejects_non_basemodule_class(self) -> None:
-        """discover() should raise TypeError if an entry point is not a BaseModule subclass."""
+        """discover() should raise TypeError for a non-BaseModule subclass."""
 
         class NotAModule:
-            pass
+            """Not a module."""
 
         mock_ep = MagicMock()
         mock_ep.name = "bad_ep"
@@ -223,7 +225,7 @@ class TestModuleRegistry:
                 registry.discover()
 
     def test_discover_rejects_non_class_entry_point(self) -> None:
-        """discover() should raise TypeError if an entry point loads a non-class object."""
+        """discover() should raise TypeError if entry point loads a non-class."""
         mock_ep = MagicMock()
         mock_ep.name = "bad_ep"
         mock_ep.value = "bad_pkg:some_function"
@@ -235,7 +237,7 @@ class TestModuleRegistry:
                 registry.discover()
 
     def test_discover_registers_valid_module(self) -> None:
-        """discover() should register a valid BaseModule subclass from entry points."""
+        """discover() should register a valid BaseModule subclass."""
         module_instance = _make_module("discovered", ["discovered:Op"])
         ModuleClass = type(module_instance)
 
@@ -250,3 +252,43 @@ class TestModuleRegistry:
 
         assert registry.get_module("discovered") is not None
         assert registry.get_tool("discovered:Op") is not None
+
+    def test_discover_does_not_set_discovered_flag_on_failure(self) -> None:
+        """If discover() fails mid-loop, _discovered must not be set True.
+
+        This ensures the registry is not left in a poisoned state where it
+        appears discovered but is incomplete.
+        """
+
+        class NotAModule:
+            """Not a module."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "bad_ep"
+        mock_ep.value = "bad_pkg:NotAModule"
+        mock_ep.load.return_value = NotAModule
+
+        registry = ModuleRegistry()
+        with patch("safe_agent.modules.registry.entry_points", return_value=[mock_ep]):
+            with pytest.raises(TypeError):
+                registry.discover()
+
+        # Registry should NOT be marked as discovered after failure.
+        assert registry._discovered is False
+
+    # ---------------------------------------------------------------------------
+    # dispatch() tests
+    # ---------------------------------------------------------------------------
+
+    async def test_dispatch_executes_registered_tool(self) -> None:
+        """dispatch() should call execute() on the correct module."""
+        registry = ModuleRegistry()
+        registry.register(_make_module("d", ["d:Run"]))
+        result = await registry.dispatch("d:Run", {})
+        assert result.success is True
+
+    async def test_dispatch_raises_for_unknown_tool(self) -> None:
+        """dispatch() should raise KeyError for an unregistered tool name."""
+        registry = ModuleRegistry()
+        with pytest.raises(KeyError, match="not registered"):
+            await registry.dispatch("ghost:Op", {})

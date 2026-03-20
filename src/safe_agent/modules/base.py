@@ -32,7 +32,7 @@ class ToolDescriptor(BaseModel):
         """Coerce a bare string into a single-element list."""
         if isinstance(v, str):
             return [v]
-        return v
+        return list(v)
 
 
 class ModuleDescriptor(BaseModel):
@@ -81,6 +81,7 @@ class BaseModule(ABC):
     """
 
     def __repr__(self) -> str:  # pragma: no cover
+        """Return a string representation including the module namespace."""
         try:
             ns = self.describe().namespace
         except Exception:

@@ -1,8 +1,11 @@
 """Module registry for discovering and dispatching SafeAgent modules."""
 
+import logging
 from importlib.metadata import entry_points
 
-from safe_agent.modules.base import BaseModule, ModuleDescriptor, ToolDescriptor
+from safe_agent.modules.base import BaseModule, ToolDescriptor, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class ModuleRegistry:
@@ -12,16 +15,27 @@ class ModuleRegistry:
     automatically from installed packages via ``discover()``.
 
     Collision rules:
-    - Namespace collisions between *different* module instances raise ``ValueError``.
-    - Tool name collisions across any modules raise ``ValueError`` (no silent shadowing).
+
+    - Namespace collisions between *different* module instances raise
+      ``ValueError``.
+    - Tool name collisions across modules raise ``ValueError`` (no silent
+      shadowing).
     - Registering the *same* instance twice is idempotent and a no-op.
 
     ``discover()`` is call-once; subsequent calls raise ``RuntimeError``.
 
-    Example:
-        >>> registry = ModuleRegistry()
-        >>> registry.register(my_module)
-        >>> result = registry.get_tool("my_namespace:my_tool")
+    Security note: ``discover()`` loads and instantiates code from installed
+    packages that declare a ``safe_agent.modules`` entry point. This is only
+    safe when the Python environment is fully controlled and no untrusted
+    packages are installed. The ``issubclass(…, BaseModule)`` guard is a
+    structural sanity check, not a security boundary. Do not use ``discover()``
+    in environments where third-party packages cannot be fully trusted.
+
+    Example::
+
+        registry = ModuleRegistry()
+        registry.register(my_module)
+        result = registry.dispatch("my_namespace:my_tool", params={})
     """
 
     def __init__(self) -> None:
@@ -61,7 +75,8 @@ class ModuleRegistry:
                 existing_module, _ = self._tool_map[tool.name]
                 raise ValueError(
                     f"Tool name collision: '{tool.name}' is already registered "
-                    f"by {existing_module!r}. Tool names must be unique across all modules."
+                    f"by {existing_module!r}. "
+                    f"Tool names must be unique across all modules."
                 )
 
         self._namespace_map[namespace] = module
@@ -77,30 +92,61 @@ class ModuleRegistry:
         Only call this method once. Subsequent calls raise ``RuntimeError`` to
         prevent double-instantiation of entry point classes.
 
+        Each loaded entry point is logged at INFO level (name, value) to provide
+        an audit trail of what was loaded and from where.
+
+        .. warning::
+            This method loads and executes third-party code. Only use it in
+            environments where all installed packages are fully trusted. See
+            the class-level security note for details.
+
         Raises:
-            RuntimeError: If ``discover()`` has already been called on this registry.
-            TypeError: If an entry point loads a class that is not a subclass of
-                ``BaseModule``.
-            ValueError: If namespace or tool name collisions occur during registration.
+            RuntimeError: If ``discover()`` has already been called on this
+                registry.
+            TypeError: If an entry point loads a value that is not a subclass
+                of ``BaseModule``.
+            ValueError: If namespace or tool name collisions occur during
+                registration.
         """
         if self._discovered:
             raise RuntimeError(
                 "discover() has already been called on this registry. "
                 "Create a new ModuleRegistry instance to re-discover."
             )
-        self._discovered = True
 
         eps = entry_points(group="safe_agent.modules")
-        for ep in eps:
-            module_class = ep.load()
-            if not (isinstance(module_class, type) and issubclass(module_class, BaseModule)):
-                raise TypeError(
-                    f"Entry point '{ep.name}' ({ep.value}) loaded {module_class!r}, "
-                    f"which is not a subclass of BaseModule. "
-                    f"Only trusted BaseModule subclasses may be registered."
+        try:
+            for ep in eps:
+                module_class = ep.load()
+                logger.info(
+                    "safe_agent.modules: loading entry point '%s' (%s)",
+                    ep.name,
+                    ep.value,
                 )
-            instance: BaseModule = module_class()
-            self.register(instance)
+                if not (
+                    isinstance(module_class, type)
+                    and issubclass(module_class, BaseModule)
+                ):
+                    raise TypeError(
+                        f"Entry point '{ep.name}' ({ep.value}) loaded "
+                        f"{module_class!r}, which is not a subclass of "
+                        f"BaseModule. Only trusted BaseModule subclasses "
+                        f"may be registered."
+                    )
+                instance: BaseModule = module_class()
+                self.register(instance)
+                logger.info(
+                    "safe_agent.modules: registered '%s' from entry point '%s'",
+                    instance,
+                    ep.name,
+                )
+        except Exception:
+            # Discovery failed — do not mark as completed so callers can
+            # diagnose and retry with a fresh registry.
+            raise
+        else:
+            # Only mark discovered after the loop completes successfully.
+            self._discovered = True
 
     def get_tool(self, tool_name: str) -> tuple[BaseModule, ToolDescriptor] | None:
         """Look up a tool by its fully-qualified name.
@@ -125,10 +171,14 @@ class ModuleRegistry:
         return self._namespace_map.get(namespace)
 
     def get_all_modules(self) -> list[BaseModule]:
-        """Return all registered module instances.
+        """Return all registered module instances in insertion order.
+
+        Note: ordering reflects registration order and is stable within a
+        single registry lifetime, but should not be relied upon across
+        restarts or re-registration sequences.
 
         Returns:
-            A list of all ``BaseModule`` instances in registration order.
+            A list of all ``BaseModule`` instances.
         """
         return list(self._namespace_map.values())
 
@@ -139,3 +189,30 @@ class ModuleRegistry:
             A list of ``ToolDescriptor`` objects across all registered modules.
         """
         return [td for _, td in self._tool_map.values()]
+
+    async def dispatch(
+        self,
+        tool_name: str,
+        params: dict,
+    ) -> ToolResult:
+        """Look up and execute a tool by name, validating it exists first.
+
+        This is the preferred dispatch path. It ensures tool lookup goes
+        through the registry (the enforced choke point) rather than callers
+        invoking ``module.execute()`` directly.
+
+        Args:
+            tool_name: The fully-qualified tool name (e.g. ``"fs:ReadFile"``).
+            params: Input parameters for the tool.
+
+        Returns:
+            A ``ToolResult`` from the module's ``execute()`` method.
+
+        Raises:
+            KeyError: If ``tool_name`` is not registered in this registry.
+        """
+        result = self.get_tool(tool_name)
+        if result is None:
+            raise KeyError(f"Tool '{tool_name}' is not registered in this registry.")
+        module, _descriptor = result
+        return await module.execute(tool_name, params)
