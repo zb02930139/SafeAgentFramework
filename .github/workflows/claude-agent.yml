@@ -22,7 +22,7 @@ jobs:
          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
         ||
         (github.event_name == 'pull_request_target' &&
-         github.event.sender.login == 'zbrooks422')
+         github.event.sender.login == 'zbrooks442')
       )
     steps:
       - uses: actions/checkout@v4
