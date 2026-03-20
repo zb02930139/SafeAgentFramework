@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from safe_agent.core.audit import AuditEntry, AuditLogger
+from safe_agent.iam.models import Decision
 
 
 def _make_entry(**overrides) -> AuditEntry:
@@ -16,7 +17,7 @@ def _make_entry(**overrides) -> AuditEntry:
         "tool_name": "fs:ReadFile",
         "params": {"path": "/etc/hosts"},
         "resolved_conditions": {"env": "prod"},
-        "decision": "ALLOWED",
+        "decision": Decision.ALLOWED,
         "matched_statements": ["AllowRead"],
     }
     defaults.update(overrides)
@@ -31,7 +32,12 @@ class TestAuditEntry:
         entry = _make_entry()
         assert entry.session_id == "sess-1"
         assert entry.tool_name == "fs:ReadFile"
-        assert entry.decision == "ALLOWED"
+        assert entry.decision == Decision.ALLOWED
+
+    def test_decision_must_be_decision_enum(self) -> None:
+        """AuditEntry.decision must be a Decision enum value."""
+        entry = _make_entry(decision=Decision.DENIED_EXPLICIT)
+        assert entry.decision == Decision.DENIED_EXPLICIT
 
     def test_defaults(self) -> None:
         """Optional fields default to empty collections."""
@@ -39,7 +45,7 @@ class TestAuditEntry:
             session_id="s",
             timestamp="2026-01-01T00:00:00+00:00",
             tool_name="t",
-            decision="DENIED_IMPLICIT",
+            decision=Decision.DENIED_IMPLICIT,
         )
         assert entry.params == {}
         assert entry.resolved_conditions == {}
@@ -52,6 +58,11 @@ class TestAuditEntry:
         parsed = json.loads(raw)
         assert parsed["session_id"] == "sess-1"
         assert parsed["decision"] == "ALLOWED"
+
+    def test_matched_statements_allows_none(self) -> None:
+        """matched_statements may contain None for anonymous statements."""
+        entry = _make_entry(matched_statements=[None, "SomePolicy"])
+        assert entry.matched_statements == [None, "SomePolicy"]
 
 
 class TestAuditLogger:
@@ -66,11 +77,10 @@ class TestAuditLogger:
         assert log_file.exists()
 
     def test_creates_parent_dirs(self, tmp_path: Path) -> None:
-        """log() should create missing parent directories."""
+        """AuditLogger.__init__ should create missing parent directories."""
         log_file = tmp_path / "deep" / "nested" / "audit.jsonl"
-        logger = AuditLogger(log_path=log_file)
-        logger.log(_make_entry())
-        assert log_file.exists()
+        AuditLogger(log_path=log_file)
+        assert log_file.parent.exists()
 
     def test_entry_written_as_json_line(self, tmp_path: Path) -> None:
         """Each logged entry should be a valid JSON line."""
@@ -86,9 +96,9 @@ class TestAuditLogger:
         """Multiple log() calls should append separate JSON lines."""
         log_file = tmp_path / "audit.jsonl"
         logger = AuditLogger(log_path=log_file)
-        logger.log(_make_entry(decision="ALLOWED"))
-        logger.log(_make_entry(decision="DENIED_EXPLICIT"))
-        logger.log(_make_entry(decision="DENIED_IMPLICIT"))
+        logger.log(_make_entry(decision=Decision.ALLOWED))
+        logger.log(_make_entry(decision=Decision.DENIED_EXPLICIT))
+        logger.log(_make_entry(decision=Decision.DENIED_IMPLICIT))
         lines = log_file.read_text().strip().splitlines()
         assert len(lines) == 3
         decisions = [json.loads(ln)["decision"] for ln in lines]
@@ -113,7 +123,7 @@ class TestAuditLogger:
 
     def test_read_entries_empty_when_no_file(self, tmp_path: Path) -> None:
         """read_entries() should return [] when the log file does not exist."""
-        logger = AuditLogger(log_path=tmp_path / "missing.jsonl")
+        logger = AuditLogger(log_path=tmp_path / "sub" / "missing.jsonl")
         assert logger.read_entries() == []
 
     def test_read_entries_roundtrip(self, tmp_path: Path) -> None:
@@ -126,3 +136,18 @@ class TestAuditLogger:
         assert len(entries) == 1
         assert entries[0].session_id == entry.session_id
         assert entries[0].decision == entry.decision
+
+    def test_read_entries_limit(self, tmp_path: Path) -> None:
+        """read_entries(limit=N) should return at most N entries."""
+        log_file = tmp_path / "audit.jsonl"
+        logger = AuditLogger(log_path=log_file)
+        for _ in range(5):
+            logger.log(_make_entry())
+        assert len(logger.read_entries(limit=3)) == 3
+        assert len(logger.read_entries(limit=10)) == 5
+
+    def test_now_iso_returns_utc_string(self) -> None:
+        """now_iso() should return a non-empty ISO-8601 string."""
+        ts = AuditLogger.now_iso()
+        assert isinstance(ts, str)
+        assert "+00:00" in ts or "Z" in ts or "UTC" in ts

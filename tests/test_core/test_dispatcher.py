@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from safe_agent.core.audit import AuditLogger
-from safe_agent.core.dispatcher import ToolDispatcher
+from safe_agent.core.dispatcher import _DISPATCH_FAILED, ToolDispatcher
 from safe_agent.iam.evaluator import PolicyEvaluator
 from safe_agent.iam.models import Decision, Policy
 from safe_agent.iam.policy import PolicyStore
@@ -25,26 +27,14 @@ from safe_agent.modules.registry import ModuleRegistry
 _ALLOW_ALL_POLICY = Policy.model_validate(
     {
         "Version": "2025-01",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": ["*"],
-                "Resource": ["*"],
-            }
-        ],
+        "Statement": [{"Effect": "Allow", "Action": ["*"], "Resource": ["*"]}],
     }
 )
 
 _DENY_ALL_POLICY = Policy.model_validate(
     {
         "Version": "2025-01",
-        "Statement": [
-            {
-                "Effect": "Deny",
-                "Action": ["*"],
-                "Resource": ["*"],
-            }
-        ],
+        "Statement": [{"Effect": "Deny", "Action": ["*"], "Resource": ["*"]}],
     }
 )
 
@@ -54,9 +44,10 @@ def _make_module(
     tool_name: str,
     action: str,
     resource_param: list[str] | None = None,
-    condition_keys: list[str] | None = None,
     execute_result: ToolResult | None = None,
     conditions: dict[str, Any] | None = None,
+    resolve_raises: bool = False,
+    execute_raises: bool = False,
 ) -> BaseModule:
     """Build a concrete BaseModule for testing."""
     _resource_param = resource_param or []
@@ -74,17 +65,20 @@ def _make_module(
                         description="A tool.",
                         action=action,
                         resource_param=_resource_param,
-                        condition_keys=condition_keys or [],
                     )
                 ],
             )
 
         async def resolve_conditions(
-            self, tool_name: str, params: dict[str, Any]
+            self, _tool_name: str, _params: dict[str, Any]
         ) -> dict[str, Any]:
+            if resolve_raises:
+                raise RuntimeError("resolve_conditions exploded")
             return _conditions
 
-        async def execute(self, tool_name: str, params: dict[str, Any]) -> ToolResult:
+        async def execute(self, _tool_name: str, _params: dict[str, Any]) -> ToolResult:
+            if execute_raises:
+                raise RuntimeError("execute exploded")
             return _execute_result
 
     return _Module()
@@ -98,14 +92,17 @@ def _make_dispatcher(
     """Wire up a ToolDispatcher with the given module and policy."""
     registry = ModuleRegistry()
     registry.register(module)
-
     store = PolicyStore()
     store.add_policy(policy)
-    evaluator = PolicyEvaluator(store)
+    return ToolDispatcher(
+        registry,
+        PolicyEvaluator(store),
+        AuditLogger(log_path=tmp_path / "audit.jsonl"),
+    )
 
-    audit_logger = AuditLogger(log_path=tmp_path / "audit.jsonl")
 
-    return ToolDispatcher(registry, evaluator, audit_logger)
+def _read_audit(tmp_path: Path) -> list:
+    return AuditLogger(log_path=tmp_path / "audit.jsonl").read_entries()
 
 
 # ---------------------------------------------------------------------------
@@ -127,33 +124,36 @@ class TestToolDispatcher:
         assert result.data == "ok"
 
     async def test_denied_call_returns_generic_error(self, tmp_path: Path) -> None:
-        """A denied tool call must return 'Action denied' with no policy details."""
+        """A denied call must return the opaque _DISPATCH_FAILED string."""
         module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
         dispatcher = _make_dispatcher(module, _DENY_ALL_POLICY, tmp_path)
         result = await dispatcher.dispatch("fs:Read", {"path": "/etc/hosts"}, "s1")
         assert result.success is False
-        assert result.error == "Action denied"
+        assert result.error == _DISPATCH_FAILED
 
-    async def test_denied_error_exposes_no_policy_details(self, tmp_path: Path) -> None:
-        """The denial error must not leak resource, policy, or statement info."""
-        module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
-        dispatcher = _make_dispatcher(module, _DENY_ALL_POLICY, tmp_path)
-        result = await dispatcher.dispatch("fs:Read", {"path": "/secret"}, "s1")
-        assert result.error == "Action denied"
-        # Must not contain path, policy hints, or decision type
-        assert "/secret" not in (result.error or "")
-        assert "Deny" not in (result.error or "")
-        assert "DENIED" not in (result.error or "")
-
-    async def test_unknown_tool_returns_unknown_tool_error(
+    async def test_unknown_tool_returns_same_error_as_denied(
         self, tmp_path: Path
     ) -> None:
-        """An unregistered tool name should return 'Unknown tool'."""
+        """Unknown tool and denied must return the same opaque error string."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read")
+        dispatcher = _make_dispatcher(module, _DENY_ALL_POLICY, tmp_path)
+
+        denied = await dispatcher.dispatch("fs:Read", {}, "s1")
+        unknown = await dispatcher.dispatch("ghost:Op", {}, "s1")
+
+        assert denied.error == unknown.error == _DISPATCH_FAILED
+
+    async def test_unknown_tool_is_audited(self, tmp_path: Path) -> None:
+        """An unknown tool call must produce an audit entry — no silent probing."""
         module = _make_module("fs", "fs:Read", "filesystem:Read")
         dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
-        result = await dispatcher.dispatch("ghost:Op", {}, "s1")
-        assert result.success is False
-        assert result.error == "Unknown tool"
+        await dispatcher.dispatch("ghost:Op", {}, "sess-probe")
+
+        entries = _read_audit(tmp_path)
+        assert len(entries) == 1
+        assert entries[0].tool_name == "ghost:Op"
+        assert entries[0].decision == Decision.DENIED_IMPLICIT
+        assert "__unknown_tool__" in entries[0].matched_statements
 
     async def test_multi_resource_all_allowed_executes(self, tmp_path: Path) -> None:
         """With multiple resource params all allowed, execution should proceed."""
@@ -170,11 +170,10 @@ class TestToolDispatcher:
         dispatcher = _make_dispatcher(module, _DENY_ALL_POLICY, tmp_path)
         result = await dispatcher.dispatch("fs:Copy", {"src": "/a", "dst": "/b"}, "s1")
         assert result.success is False
-        assert result.error == "Action denied"
+        assert result.error == _DISPATCH_FAILED
 
     async def test_conditions_passed_to_evaluator(self, tmp_path: Path) -> None:
-        """Conditions resolved by the module should be forwarded to the evaluator."""
-        # Allow only when env == "prod"
+        """Conditions resolved by the module are forwarded to the evaluator."""
         policy = Policy.model_validate(
             {
                 "Version": "2025-01",
@@ -183,26 +182,20 @@ class TestToolDispatcher:
                         "Effect": "Allow",
                         "Action": ["*"],
                         "Resource": ["*"],
-                        "Condition": {
-                            "StringEquals": {"env": "prod"},
-                        },
+                        "Condition": {"StringEquals": {"env": "prod"}},
                     }
                 ],
             }
         )
-        # Module returns env=prod → should be allowed
         module = _make_module(
-            "fs",
-            "fs:Read",
-            "filesystem:Read",
-            conditions={"env": "prod"},
+            "fs", "fs:Read", "filesystem:Read", conditions={"env": "prod"}
         )
         dispatcher = _make_dispatcher(module, policy, tmp_path)
         result = await dispatcher.dispatch("fs:Read", {}, "s1")
         assert result.success is True
 
     async def test_conditions_mismatch_results_in_deny(self, tmp_path: Path) -> None:
-        """If resolved conditions don't satisfy the policy, the call is denied."""
+        """Unmatched conditions produce an implicit deny."""
         policy = Policy.model_validate(
             {
                 "Version": "2025-01",
@@ -211,24 +204,18 @@ class TestToolDispatcher:
                         "Effect": "Allow",
                         "Action": ["*"],
                         "Resource": ["*"],
-                        "Condition": {
-                            "StringEquals": {"env": "prod"},
-                        },
+                        "Condition": {"StringEquals": {"env": "prod"}},
                     }
                 ],
             }
         )
-        # Module returns env=staging → conditions not satisfied → implicit deny
         module = _make_module(
-            "fs",
-            "fs:Read",
-            "filesystem:Read",
-            conditions={"env": "staging"},
+            "fs", "fs:Read", "filesystem:Read", conditions={"env": "staging"}
         )
         dispatcher = _make_dispatcher(module, policy, tmp_path)
         result = await dispatcher.dispatch("fs:Read", {}, "s1")
         assert result.success is False
-        assert result.error == "Action denied"
+        assert result.error == _DISPATCH_FAILED
 
     async def test_audit_logger_called_for_allowed(self, tmp_path: Path) -> None:
         """An allowed call should produce an audit log entry."""
@@ -236,7 +223,7 @@ class TestToolDispatcher:
         dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
         await dispatcher.dispatch("fs:Read", {"path": "/etc/hosts"}, "sess-42")
 
-        entries = AuditLogger(log_path=tmp_path / "audit.jsonl").read_entries()
+        entries = _read_audit(tmp_path)
         assert len(entries) == 1
         assert entries[0].session_id == "sess-42"
         assert entries[0].tool_name == "fs:Read"
@@ -248,7 +235,7 @@ class TestToolDispatcher:
         dispatcher = _make_dispatcher(module, _DENY_ALL_POLICY, tmp_path)
         await dispatcher.dispatch("fs:Read", {"path": "/etc/hosts"}, "sess-7")
 
-        entries = AuditLogger(log_path=tmp_path / "audit.jsonl").read_entries()
+        entries = _read_audit(tmp_path)
         assert len(entries) == 1
         assert entries[0].decision == Decision.DENIED_EXPLICIT
 
@@ -258,49 +245,40 @@ class TestToolDispatcher:
         dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
         await dispatcher.dispatch("fs:Copy", {"src": "/a", "dst": "/b"}, "s1")
 
-        entries = AuditLogger(log_path=tmp_path / "audit.jsonl").read_entries()
+        entries = _read_audit(tmp_path)
         assert len(entries) == 2
 
     async def test_no_resource_param_uses_empty_resource(self, tmp_path: Path) -> None:
-        """A tool with no resource_param should still be evaluated (empty resource)."""
+        """A tool with no resource_param is evaluated against empty resource."""
         module = _make_module("sys", "sys:Ping", "system:Ping")
         dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
         result = await dispatcher.dispatch("sys:Ping", {}, "s1")
         assert result.success is True
-
-        entries = AuditLogger(log_path=tmp_path / "audit.jsonl").read_entries()
-        assert len(entries) == 1
+        assert len(_read_audit(tmp_path)) == 1
 
     async def test_execute_not_called_when_denied(self, tmp_path: Path) -> None:
         """module.execute() must not be called when the call is denied."""
         execute_called = False
-        expected = ToolResult(success=True, data="should not appear")
 
         class _TrackingModule(BaseModule):
             def describe(self) -> ModuleDescriptor:
                 return ModuleDescriptor(
                     namespace="t",
-                    description="Tracking module.",
+                    description="Tracking.",
                     tools=[
-                        ToolDescriptor(
-                            name="t:Op",
-                            description="Op.",
-                            action="t:Op",
-                        )
+                        ToolDescriptor(name="t:Op", description="Op.", action="t:Op")
                     ],
                 )
 
             async def resolve_conditions(
-                self, tool_name: str, params: dict[str, Any]
+                self, _tn: str, _p: dict[str, Any]
             ) -> dict[str, Any]:
                 return {}
 
-            async def execute(
-                self, tool_name: str, params: dict[str, Any]
-            ) -> ToolResult:
+            async def execute(self, _tn: str, _p: dict[str, Any]) -> ToolResult:
                 nonlocal execute_called
                 execute_called = True
-                return expected
+                return ToolResult(success=True)
 
         registry = ModuleRegistry()
         registry.register(_TrackingModule())
@@ -314,3 +292,55 @@ class TestToolDispatcher:
         result = await dispatcher.dispatch("t:Op", {}, "s1")
         assert result.success is False
         assert execute_called is False
+
+    async def test_resolve_conditions_exception_returns_generic_error(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception in resolve_conditions returns the opaque error."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", resolve_raises=True)
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
+        result = await dispatcher.dispatch("fs:Read", {}, "s1")
+        assert result.success is False
+        assert result.error == _DISPATCH_FAILED
+
+    async def test_resolve_conditions_exception_is_audited(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception in resolve_conditions must still produce an audit entry."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", resolve_raises=True)
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
+        await dispatcher.dispatch("fs:Read", {}, "s1")
+
+        entries = _read_audit(tmp_path)
+        assert len(entries) == 1
+        assert entries[0].decision == Decision.DENIED_IMPLICIT
+        assert "__internal_error__" in entries[0].matched_statements
+
+    async def test_execute_exception_returns_generic_error(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception in module.execute() returns the opaque error."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", execute_raises=True)
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
+        result = await dispatcher.dispatch("fs:Read", {}, "s1")
+        assert result.success is False
+        assert result.error == _DISPATCH_FAILED
+
+    async def test_execute_exception_is_audited(self, tmp_path: Path) -> None:
+        """An exception in module.execute() must produce an audit entry."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", execute_raises=True)
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
+        await dispatcher.dispatch("fs:Read", {}, "s1")
+
+        entries = _read_audit(tmp_path)
+        # 1 for the resource evaluation + 1 for the execute error
+        assert len(entries) >= 2
+        decisions = {e.decision for e in entries}
+        assert Decision.DENIED_IMPLICIT in decisions
+
+    async def test_empty_session_id_raises(self, tmp_path: Path) -> None:
+        """An empty session_id should raise ValueError."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read")
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL_POLICY, tmp_path)
+        with pytest.raises(ValueError, match="session_id"):
+            await dispatcher.dispatch("fs:Read", {}, "")
