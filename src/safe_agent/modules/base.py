@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ToolDescriptor(BaseModel):
@@ -15,6 +15,7 @@ class ToolDescriptor(BaseModel):
         parameters: JSON Schema dict describing the tool's input parameters.
         action: Action identifier string, e.g. "filesystem:ReadFile".
         resource_param: Name(s) of parameter(s) that identify the resource.
+            Always stored as a list; a bare string is coerced automatically.
         condition_keys: List of condition keys used for policy evaluation.
     """
 
@@ -22,8 +23,16 @@ class ToolDescriptor(BaseModel):
     description: str
     parameters: dict[str, Any] = Field(default_factory=dict)
     action: str
-    resource_param: str | list[str] = Field(default_factory=list)
+    resource_param: list[str] = Field(default_factory=list)
     condition_keys: list[str] = Field(default_factory=list)
+
+    @field_validator("resource_param", mode="before")
+    @classmethod
+    def _coerce_resource_param(cls, v: Any) -> list[str]:
+        """Coerce a bare string into a single-element list."""
+        if isinstance(v, str):
+            return [v]
+        return v
 
 
 class ModuleDescriptor(BaseModel):
@@ -63,7 +72,20 @@ class BaseModule(ABC):
     framework. Each module declares its namespace and tools via ``describe()``,
     resolves runtime policy conditions via ``resolve_conditions()``, and
     executes tool invocations via ``execute()``.
+
+    Note: ``describe()`` is synchronous by design. Modules must not perform
+    async work inside ``describe()`` — use ``__init__`` for eager sync
+    initialisation or add a dedicated async ``setup()`` lifecycle method in
+    your concrete subclass if async setup is required. Descriptors are expected
+    to be stable and inexpensive to produce.
     """
+
+    def __repr__(self) -> str:  # pragma: no cover
+        try:
+            ns = self.describe().namespace
+        except Exception:
+            ns = "<unknown>"
+        return f"<{type(self).__name__} namespace={ns!r}>"
 
     @abstractmethod
     def describe(self) -> ModuleDescriptor:

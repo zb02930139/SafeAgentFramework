@@ -92,15 +92,25 @@ class TestToolDescriptor:
         )
         assert td.resource_param == ["bucket", "key"]
 
-    def test_resource_param_string(self) -> None:
-        """resource_param should accept a single string."""
+    def test_resource_param_string_coerced_to_list(self) -> None:
+        """A bare string resource_param should be coerced to a single-element list."""
         td = ToolDescriptor(
             name="x:y",
             description="d",
             action="x:Y",
             resource_param="path",
         )
-        assert td.resource_param == "path"
+        assert td.resource_param == ["path"]
+
+    def test_resource_param_always_list(self) -> None:
+        """resource_param should always be a list, never a bare string."""
+        td = ToolDescriptor(
+            name="x:y",
+            description="d",
+            action="x:Y",
+            resource_param="single",
+        )
+        assert isinstance(td.resource_param, list)
 
     def test_parameters_schema(self) -> None:
         """Parameters should accept a JSON-Schema-like dict."""
