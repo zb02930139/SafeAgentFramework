@@ -32,3 +32,11 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.BOT_GITHUB_TOKEN }}
+          trigger_phrase: ""
+          prompt: |
+            Review this pull request. Analyze the code changes for:
+            - Correctness and potential bugs
+            - Security concerns
+            - Code quality and best practices
+            - Suggestions for improvement
+            Leave your review as PR comments.
