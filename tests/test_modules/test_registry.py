@@ -276,6 +276,110 @@ class TestModuleRegistry:
         # Registry should NOT be marked as discovered after failure.
         assert registry._discovered is False
 
+    def test_discover_is_atomic_no_partial_state_on_type_error(self) -> None:
+        """discover() must leave registry unchanged when it fails mid-loop.
+
+        First entry point loads a valid module; second raises TypeError.
+        Neither should appear in the registry after the failure.
+        Fixes issue #11.
+        """
+        good_instance = _make_module("good", ["good:Op"])
+        GoodClass = type(good_instance)
+
+        class NotAModule:
+            """Not a module."""
+
+        good_ep = MagicMock()
+        good_ep.name = "good_ep"
+        good_ep.value = "pkg:GoodModule"
+        good_ep.load.return_value = GoodClass
+
+        bad_ep = MagicMock()
+        bad_ep.name = "bad_ep"
+        bad_ep.value = "pkg:NotAModule"
+        bad_ep.load.return_value = NotAModule
+
+        registry = ModuleRegistry()
+        with patch(
+            "safe_agent.modules.registry.entry_points",
+            return_value=[good_ep, bad_ep],
+        ):
+            with pytest.raises(TypeError):
+                registry.discover()
+
+        # Both the valid entry point and the failed one must be absent.
+        assert registry.get_module("good") is None
+        assert registry.get_tool("good:Op") is None
+        assert registry._discovered is False
+
+    def test_discover_is_atomic_no_partial_state_on_collision(self) -> None:
+        """discover() must leave registry unchanged when a collision occurs.
+
+        First entry point loads fine; second collides on tool name.
+        Neither should pollute the live registry. Fixes issue #11.
+        """
+        first_instance = _make_module("first", ["shared:Tool"])
+        FirstClass = type(first_instance)
+
+        second_instance = _make_module("second", ["shared:Tool"])
+        SecondClass = type(second_instance)
+
+        ep1 = MagicMock()
+        ep1.name = "ep1"
+        ep1.value = "pkg:First"
+        ep1.load.return_value = FirstClass
+
+        ep2 = MagicMock()
+        ep2.name = "ep2"
+        ep2.value = "pkg:Second"
+        ep2.load.return_value = SecondClass
+
+        registry = ModuleRegistry()
+        with patch(
+            "safe_agent.modules.registry.entry_points",
+            return_value=[ep1, ep2],
+        ):
+            with pytest.raises(ValueError, match="Tool name collision"):
+                registry.discover()
+
+        assert registry.get_module("first") is None
+        assert registry.get_module("second") is None
+        assert registry.get_tool("shared:Tool") is None
+        assert registry._discovered is False
+
+    def test_discover_atomic_preserves_pre_existing_manual_registrations(
+        self,
+    ) -> None:
+        """A failed discover() must not disturb manually registered modules.
+
+        If register() was called before discover(), and discover() then fails,
+        the manually registered module must still be present.
+        """
+        manual = _make_module("manual", ["manual:Op"])
+
+        class NotAModule:
+            """Not a module."""
+
+        bad_ep = MagicMock()
+        bad_ep.name = "bad_ep"
+        bad_ep.value = "pkg:Bad"
+        bad_ep.load.return_value = NotAModule
+
+        registry = ModuleRegistry()
+        registry.register(manual)
+
+        with patch(
+            "safe_agent.modules.registry.entry_points",
+            return_value=[bad_ep],
+        ):
+            with pytest.raises(TypeError):
+                registry.discover()
+
+        # Manual registration must be intact.
+        assert registry.get_module("manual") is manual
+        assert registry.get_tool("manual:Op") is not None
+        assert registry._discovered is False
+
     # ---------------------------------------------------------------------------
     # dispatch() tests
     # ---------------------------------------------------------------------------

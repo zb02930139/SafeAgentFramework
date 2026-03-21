@@ -121,12 +121,12 @@ class ModuleRegistry:
             ValueError: If namespace or tool name collisions occur during
                 registration.
 
-        Warning:
-            If ``discover()`` raises mid-loop, any entry points processed
-            before the failure are already registered and the registry state
-            is partially populated. Discard the registry and create a new
-            instance rather than retrying discovery on a failed registry.
-            See issue #11 for atomic discovery support.
+        Note:
+            ``discover()`` is atomic: all validation and instantiation run
+            against staging dicts before any live state is modified. If an
+            error occurs at any point, the registry is left in its
+            pre-discover state — no partial registration occurs. Fixes
+            issue #11.
         """
         if self._discovered:
             raise RuntimeError(
@@ -135,6 +135,15 @@ class ModuleRegistry:
             )
 
         eps = entry_points(group="safe_agent.modules")
+
+        # Use staging dicts so that discover() is all-or-nothing. If anything
+        # fails mid-loop the live maps are never touched and the registry
+        # remains in its pre-discover state.
+        staging_namespace_map: dict[str, BaseModule] = dict(self._namespace_map)
+        staging_tool_map: dict[str, tuple[BaseModule, ToolDescriptor]] = dict(
+            self._tool_map
+        )
+
         try:
             for ep in eps:
                 module_class = ep.load()
@@ -154,19 +163,50 @@ class ModuleRegistry:
                         f"may be registered."
                     )
                 instance: BaseModule = module_class()
-                self.register(instance)
+                descriptor = instance.describe()
+                namespace = descriptor.namespace
+                tools = list(descriptor.tools)
+
+                # Namespace collision check against staging state.
+                if namespace in staging_namespace_map:
+                    existing = staging_namespace_map[namespace]
+                    if existing is not instance:
+                        raise ValueError(
+                            f"Namespace collision: '{namespace}' is already "
+                            f"registered by {existing!r}."
+                        )
+                    # Same instance — idempotent, skip.
+                    continue
+
+                # Tool collision check against staging state.
+                for tool in tools:
+                    if tool.name in staging_tool_map:
+                        existing_module, _ = staging_tool_map[tool.name]
+                        raise ValueError(
+                            f"Tool name collision: '{tool.name}' is already "
+                            f"registered by {existing_module!r}. "
+                            f"Tool names must be unique across all modules."
+                        )
+
+                # All checks passed — write to staging only.
+                staging_namespace_map[namespace] = instance
+                for tool in tools:
+                    staging_tool_map[tool.name] = (instance, tool)
+
                 logger.info(
                     "safe_agent.modules: registered '%s' from entry point '%s'",
                     instance,
                     ep.name,
                 )
         except Exception:
-            # Discovery failed — do not mark as completed so callers can
-            # diagnose and retry with a fresh registry.
+            # Discovery failed — staging dicts are discarded, live maps
+            # untouched. Do not mark as completed.
             raise
-        else:
-            # Only mark discovered after the loop completes successfully.
-            self._discovered = True
+
+        # All entry points processed successfully — atomic swap.
+        self._namespace_map = staging_namespace_map
+        self._tool_map = staging_tool_map
+        self._discovered = True
 
     def get_tool(self, tool_name: str) -> tuple[BaseModule, ToolDescriptor] | None:
         """Look up a tool by its fully-qualified name.
