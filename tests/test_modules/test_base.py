@@ -3,6 +3,7 @@
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from safe_agent.modules.base import (
     BaseModule,
@@ -177,6 +178,11 @@ class TestToolResult:
         """ToolResult should support typed scalar payloads via generics."""
         r = ToolResult[str](success=True, data="hello")
         assert r.data == "hello"
+
+    def test_generic_payload_validation_rejects_wrong_type(self) -> None:
+        """Parameterized ToolResult should validate the payload type at runtime."""
+        with pytest.raises(ValidationError):
+            ToolResult[int](success=True, data="not-an-int")
 
     def test_failure_with_error(self) -> None:
         """ToolResult should store error message on failure."""

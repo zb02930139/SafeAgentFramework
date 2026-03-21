@@ -160,7 +160,7 @@ class ToolDispatcher:
                     tool_name,
                     session_id,
                 )
-            return ToolResult(success=False, error=_DISPATCH_FAILED)
+            return ToolResult[Any](success=False, error=_DISPATCH_FAILED)
 
         module, descriptor = lookup
 
@@ -203,7 +203,7 @@ class ToolDispatcher:
                     tool_name,
                     session_id,
                 )
-            return ToolResult(success=False, error=_DISPATCH_FAILED)
+            return ToolResult[Any](success=False, error=_DISPATCH_FAILED)
 
         # Steps 4 & 5 — evaluate each resource and log every decision.
         denied = False
@@ -273,7 +273,7 @@ class ToolDispatcher:
 
         # Step 6/7 — deny if any resource was denied, with no policy details.
         if denied:
-            return ToolResult(success=False, error=_DISPATCH_FAILED)
+            return ToolResult[Any](success=False, error=_DISPATCH_FAILED)
 
         # Step 8 — all resources allowed; execute.
         try:
@@ -294,7 +294,7 @@ class ToolDispatcher:
                     matched_statements=["__execute_error__"],
                 )
             )
-            return ToolResult(success=False, error=_DISPATCH_FAILED)
+            return ToolResult[Any](success=False, error=_DISPATCH_FAILED)
 
         # Audit the successful execution. If this write fails, we still return
         # the result — the tool already ran and cannot be rolled back. The
