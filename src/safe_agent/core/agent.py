@@ -56,6 +56,13 @@ class Agent:
         self.event_loop = event_loop
         self.gateway = gateway
 
-    async def chat(self, message: str, session_id: str | None = None) -> str:
-        """Process a chat message via the gateway."""
+    async def chat(
+        self, message: str, session_id: str | None = None
+    ) -> tuple[str, str]:
+        """Process a chat message via the gateway.
+
+        Returns:
+            A ``(response, session_id)`` tuple. Pass ``session_id`` back on the
+            next call to continue the same conversation.
+        """
         return await self.gateway.submit(message, session_id)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from safe_agent.core.event_loop import EventLoop
-from safe_agent.core.session import SessionManager
+from safe_agent.core.session import Session, SessionManager
 
 
 class Gateway:
@@ -18,24 +18,29 @@ class Gateway:
         self._session_manager = session_manager
         self._event_loop = event_loop
 
-    async def submit(self, message: str, session_id: str | None = None) -> str:
-        """Submit a user message to a session and return the assistant response.
+    async def submit(
+        self, message: str, session_id: str | None = None
+    ) -> tuple[str, str]:
+        """Submit a user message to a session and return the response and session ID.
 
         Args:
             message: The user message to process.
-            session_id: Existing session identifier, or ``None`` to create one.
+            session_id: Existing session identifier, or ``None`` to create a new one.
 
         Returns:
-            The final response text returned by the event loop.
+            A ``(response, session_id)`` tuple so callers can continue the conversation.
 
         Raises:
             KeyError: If *session_id* is provided but no tracked session exists.
         """
-        session = self._session_manager.create()
-        if session_id is not None:
-            existing_session = self._session_manager.get(session_id)
-            if existing_session is None:
+        session: Session
+        if session_id is None:
+            session = self._session_manager.create()
+        else:
+            existing = self._session_manager.get(session_id)
+            if existing is None:
                 raise KeyError(session_id)
-            session = existing_session
+            session = existing
 
-        return await self._event_loop.process_turn(session, message)
+        response = await self._event_loop.process_turn(session, message)
+        return response, session.id

@@ -123,9 +123,10 @@ async def test_allowed_tool_call_succeeds_end_to_end(tmp_path: Path) -> None:
         audit_log_path=audit_log_path,
     )
 
-    response = await agent.chat("say hi")
+    response, session_id = await agent.chat("say hi")
 
     assert response == "tool finished"
+    assert session_id is not None
     assert len(llm.calls) == 2
     assert llm.calls[0]["messages"] == [{"role": "user", "content": "say hi"}]
     tool_message = llm.calls[1]["messages"][-1]
@@ -137,6 +138,49 @@ async def test_allowed_tool_call_succeeds_end_to_end(tmp_path: Path) -> None:
         "error": None,
         "metadata": {},
     }
+
+
+@pytest.mark.asyncio
+async def test_session_id_enables_multi_turn_conversation(tmp_path: Path) -> None:
+    """Returned session_id can be passed back to continue the same session."""
+    policy_dir = tmp_path / "policies"
+    policy_dir.mkdir()
+    write_policy(policy_dir, "allowed-resource")
+    llm = MockLLM(
+        [LLMResponse(content="turn one"), LLMResponse(content="turn two")]
+    )
+    agent = Agent(
+        policy_dir=policy_dir,
+        llm_client=llm,
+        modules=[EchoModule()],
+        audit_log_path=tmp_path / "audit.jsonl",
+    )
+
+    _, session_id = await agent.chat("first message")
+    response2, session_id2 = await agent.chat("second message", session_id=session_id)
+
+    assert response2 == "turn two"
+    assert session_id2 == session_id
+    # Both turns are in the same session history
+    session = agent.session_manager.get(session_id)
+    assert session is not None
+    assert len(session.messages) == 4  # user + assistant + user + assistant
+
+
+@pytest.mark.asyncio
+async def test_unknown_session_id_raises_key_error(tmp_path: Path) -> None:
+    policy_dir = tmp_path / "policies"
+    policy_dir.mkdir()
+    write_policy(policy_dir, "allowed-resource")
+    agent = Agent(
+        policy_dir=policy_dir,
+        llm_client=MockLLM([]),
+        modules=[EchoModule()],
+        audit_log_path=tmp_path / "audit.jsonl",
+    )
+
+    with pytest.raises(KeyError):
+        await agent.chat("hello", session_id="nonexistent-session-id")
 
 
 @pytest.mark.asyncio
@@ -165,7 +209,7 @@ async def test_denied_tool_call_returns_generic_error(tmp_path: Path) -> None:
         audit_log_path=tmp_path / "audit.jsonl",
     )
 
-    response = await agent.chat("try denied tool")
+    response, _ = await agent.chat("try denied tool")
 
     assert response == "done"
     tool_message = llm.calls[1]["messages"][-1]
@@ -278,14 +322,17 @@ async def test_session_isolation_keeps_message_histories_separate(
         audit_log_path=tmp_path / "audit.jsonl",
     )
 
-    session_one = agent.session_manager.create()
-    session_two = agent.session_manager.create()
+    response1, sid1 = await agent.chat("hello from one")
+    response2, sid2 = await agent.chat("hello from two")
 
-    first_response = await agent.chat("hello from one", session_id=session_one.id)
-    second_response = await agent.chat("hello from two", session_id=session_two.id)
+    assert response1 == "first"
+    assert response2 == "second"
+    assert sid1 != sid2
 
-    assert first_response == "first"
-    assert second_response == "second"
+    session_one = agent.session_manager.get(sid1)
+    session_two = agent.session_manager.get(sid2)
+    assert session_one is not None
+    assert session_two is not None
     assert session_one.messages == [
         {"role": "user", "content": "hello from one"},
         {"role": "assistant", "content": "first"},
