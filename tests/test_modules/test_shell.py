@@ -152,10 +152,7 @@ class TestShellModule:
                 "command": sys.executable,
                 "args": [
                     "-c",
-                    (
-                        "import sys; print('oops', file=sys.stderr); "
-                        "raise SystemExit(7)"
-                    ),
+                    ("import sys; print('oops', file=sys.stderr); raise SystemExit(7)"),
                 ],
             },
         )
