@@ -112,7 +112,7 @@ class ToolDispatcher:
         tool_name: str,
         params: dict[str, Any],
         session_id: str,
-    ) -> ToolResult:
+    ) -> ToolResult[Any]:
         """Authorise and execute a tool call.
 
         Every outcome — allowed, denied, unknown tool, or internal error —

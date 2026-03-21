@@ -62,7 +62,7 @@ def _make_module(
             self,
             tool_name: str,
             params: dict[str, Any],
-        ) -> ToolResult:
+        ) -> ToolResult[Any]:
             """Return a default success result."""
             return ToolResult(success=True)
 

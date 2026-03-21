@@ -49,7 +49,7 @@ class ModuleDescriptor(BaseModel):
     tools: list[ToolDescriptor] = Field(default_factory=list)
 
 
-class ToolResult(BaseModel):
+class ToolResult[ToolDataT](BaseModel):
     """Represents the result of a tool execution.
 
     Attributes:
@@ -57,10 +57,16 @@ class ToolResult(BaseModel):
         data: Optional result data returned by the tool.
         error: Optional error message if execution failed.
         metadata: Additional metadata about the execution.
+
+    Notes:
+        ``ToolResult`` is generic so module authors can describe the expected
+        shape of ``data`` more precisely than ``Any``. Consumers must still
+        validate untrusted tool output before sending it to sensitive sinks
+        such as shell commands, SQL, template engines, or dynamic execution.
     """
 
     success: bool
-    data: Any | None = None
+    data: ToolDataT | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -118,7 +124,7 @@ class BaseModule(ABC):
         self,
         tool_name: str,
         params: dict[str, Any],
-    ) -> ToolResult:
+    ) -> ToolResult[Any]:
         """Execute a tool invocation and return the result.
 
         Args:

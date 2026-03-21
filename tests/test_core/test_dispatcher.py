@@ -81,7 +81,7 @@ def _make_module(
                 raise RuntimeError("resolve boom")
             return _conditions
 
-        async def execute(self, tn: str, p: dict[str, Any]) -> ToolResult:
+        async def execute(self, tn: str, p: dict[str, Any]) -> ToolResult[Any]:
             if execute_raises:
                 raise RuntimeError("execute boom")
             return _execute_result
@@ -273,7 +273,7 @@ class TestToolDispatcher:
             ) -> dict[str, Any]:
                 return {}
 
-            async def execute(self, tn: str, p: dict[str, Any]) -> ToolResult:
+            async def execute(self, tn: str, p: dict[str, Any]) -> ToolResult[Any]:
                 nonlocal execute_called
                 execute_called = True
                 return ToolResult(success=True)

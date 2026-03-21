@@ -251,7 +251,7 @@ class ModuleRegistry:
         self,
         tool_name: str,
         params: dict[str, Any],
-    ) -> ToolResult:
+    ) -> ToolResult[Any]:
         """Look up and execute a tool by name, validating it exists first.
 
         This is the preferred dispatch path. It ensures tool lookup goes
