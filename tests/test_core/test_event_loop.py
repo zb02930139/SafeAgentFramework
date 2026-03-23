@@ -260,17 +260,13 @@ class TestSanitizeMessages:
         assert result[0]["tool_calls"][0]["name"] == "filesystem__read_file"
 
     def test_sanitizes_tool_result_name(self) -> None:
-        messages = [
-            {"role": "tool", "name": "filesystem:read_file", "content": "{}"}
-        ]
+        messages = [{"role": "tool", "name": "filesystem:read_file", "content": "{}"}]
         result = _sanitize_messages(messages)
         assert result[0]["name"] == "filesystem__read_file"
 
     def test_does_not_mutate_original(self) -> None:
         original_tc = {"name": "filesystem:read_file", "params": {}}
-        messages = [
-            {"role": "assistant", "content": None, "tool_calls": [original_tc]}
-        ]
+        messages = [{"role": "assistant", "content": None, "tool_calls": [original_tc]}]
         _sanitize_messages(messages)
         assert original_tc["name"] == "filesystem:read_file"
 
@@ -308,9 +304,7 @@ def test_llm_tool_call_name_restored_before_dispatch(
     # LLM returns the sanitized name as a provider would
     llm = _FakeLLM(
         [
-            LLMResponse(
-                tool_calls=[ToolCall(name="demo__echo", params={"value": 42})]
-            ),
+            LLMResponse(tool_calls=[ToolCall(name="demo__echo", params={"value": 42})]),
             LLMResponse(content="done"),
         ]
     )
@@ -332,9 +326,7 @@ def test_session_transcript_stores_canonical_names(
     dispatcher = _FakeDispatcher()
     llm = _FakeLLM(
         [
-            LLMResponse(
-                tool_calls=[ToolCall(name="demo__echo", params={"v": 1})]
-            ),
+            LLMResponse(tool_calls=[ToolCall(name="demo__echo", params={"v": 1})]),
             LLMResponse(content="done"),
         ]
     )
@@ -356,9 +348,7 @@ def test_sanitized_history_sent_to_llm_on_second_turn(
     dispatcher = _FakeDispatcher()
     llm = _FakeLLM(
         [
-            LLMResponse(
-                tool_calls=[ToolCall(name="demo__echo", params={"v": 1})]
-            ),
+            LLMResponse(tool_calls=[ToolCall(name="demo__echo", params={"v": 1})]),
             LLMResponse(content="done"),
         ]
     )
@@ -370,7 +360,8 @@ def test_sanitized_history_sent_to_llm_on_second_turn(
     # Second LLM call receives the history; tool_calls in it must be sanitized
     second_call_messages, _ = llm.calls[1]
     assistant_history = [
-        m for m in second_call_messages
+        m
+        for m in second_call_messages
         if m.get("role") == "assistant" and m.get("tool_calls")
     ]
     for msg in assistant_history:

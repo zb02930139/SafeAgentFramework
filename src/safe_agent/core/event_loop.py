@@ -118,8 +118,7 @@ class EventLoop:
                             "role": "assistant",
                             "content": None,
                             "tool_calls": [
-                                tool_call.model_dump()
-                                for tool_call in restored_calls
+                                tool_call.model_dump() for tool_call in restored_calls
                             ],
                         }
                     )
