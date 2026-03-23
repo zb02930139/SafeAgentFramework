@@ -2,7 +2,7 @@
 
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from safe_agent.core import SessionManager
@@ -230,7 +230,9 @@ class TestMaxMessages:
 
         # Add 5 messages without trimming
         for i in range(5):
-            manager.add_message(session.id, {"role": "user", "content": str(i)}, trim=False)
+            manager.add_message(
+                session.id, {"role": "user", "content": str(i)}, trim=False
+            )
 
         # Should keep all
         assert len(session.messages) == 5
@@ -267,7 +269,7 @@ class TestEvictionCallback:
         manager.set_eviction_callback(lambda s: evicted.append(s.id))
 
         session1 = manager.create()
-        session2 = manager.create()  # Should evict session1
+        _ = manager.create()  # Evicts session1
 
         assert session1.id in evicted
 
@@ -277,8 +279,8 @@ class TestEvictionCallback:
         manager.set_eviction_callback(lambda s: evicted.append(s.id))
         manager.set_eviction_callback(None)  # Disable
 
-        session1 = manager.create()
-        session2 = manager.create()
+        manager.create()
+        manager.create()
 
         # Callback was disabled, should not have been called
         assert len(evicted) == 0
@@ -291,7 +293,7 @@ class TestEvictionCallback:
         manager.set_eviction_callback(bad_callback)
 
         session1 = manager.create()
-        session2 = manager.create()
+        _ = manager.create()
 
         # Session1 should still be evicted despite callback error
         assert manager.get(session1.id) is None
@@ -302,14 +304,16 @@ class TestThreadSafety:
 
     def test_concurrent_creates(self) -> None:
         manager = SessionManager(max_sessions=1000)
-        session_ids = []
+        session_ids_lock = threading.Lock()
+        session_ids: list[str] = []
         errors = []
 
         def create_sessions() -> None:
             try:
                 for _ in range(100):
                     session = manager.create()
-                    session_ids.append(session.id)
+                    with session_ids_lock:
+                        session_ids.append(session.id)
             except Exception as e:
                 errors.append(e)
 
@@ -336,7 +340,9 @@ class TestThreadSafety:
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=get_and_close, args=(i * 10,)) for i in range(10)]
+        threads = [
+            threading.Thread(target=get_and_close, args=(i * 10,)) for i in range(10)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -365,3 +371,78 @@ class TestThreadSafety:
         assert len(errors) == 0
         # Should have been trimmed to max_messages
         assert len(session.messages) <= 100
+
+
+class TestInputValidation:
+    """Tests for constructor input validation."""
+
+    def test_max_sessions_zero_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="max_sessions must be positive"):
+            SessionManager(max_sessions=0)
+
+    def test_max_sessions_negative_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="max_sessions must be positive"):
+            SessionManager(max_sessions=-1)
+
+    def test_max_messages_zero_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="max_messages must be positive"):
+            SessionManager(max_messages=0)
+
+    def test_max_messages_negative_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="max_messages must be positive"):
+            SessionManager(max_messages=-1)
+
+    def test_negative_ttl_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="session_ttl must be non-negative"):
+            SessionManager(session_ttl=-10)
+
+    def test_negative_timedelta_ttl_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="session_ttl must be non-negative"):
+            SessionManager(session_ttl=timedelta(seconds=-5))
+
+    def test_zero_ttl_allowed(self) -> None:
+        # Zero TTL is allowed (sessions expire immediately)
+        manager = SessionManager(session_ttl=0)
+        assert manager.session_ttl == timedelta(0)
+
+
+class TestCleanupConsistency:
+    """Tests for cleanup behavior across all methods."""
+
+    def test_count_triggers_cleanup(self) -> None:
+        manager = SessionManager(session_ttl=0.1)
+
+        manager.create()
+
+        # Wait for TTL
+        time.sleep(0.15)
+
+        # count() should trigger cleanup
+        assert manager.count() == 0
+
+    def test_close_triggers_cleanup(self) -> None:
+        manager = SessionManager(session_ttl=0.1)
+
+        session1 = manager.create()
+        _ = manager.create()
+
+        # Wait for TTL
+        time.sleep(0.15)
+
+        # close() should trigger cleanup
+        manager.close(session1.id)
+
+        # Both sessions should be gone (session1 closed, session2 expired)
+        assert manager.count() == 0

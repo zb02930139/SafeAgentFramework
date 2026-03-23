@@ -69,8 +69,19 @@ class SessionManager:
         else:
             self.session_ttl = timedelta(seconds=session_ttl)
 
+        # Validate TTL is non-negative
+        if self.session_ttl.total_seconds() < 0:
+            raise ValueError("session_ttl must be non-negative")
+
+        # Apply defaults
         self.max_sessions = max_sessions if max_sessions is not None else 1000
         self.max_messages = max_messages if max_messages is not None else 1000
+
+        # Validate limits are positive
+        if self.max_sessions <= 0:
+            raise ValueError("max_sessions must be positive")
+        if self.max_messages <= 0:
+            raise ValueError("max_messages must be positive")
 
         # OrderedDict maintains access order for LRU eviction
         self._sessions: OrderedDict[str, Session] = OrderedDict()
@@ -128,10 +139,13 @@ class SessionManager:
     def close(self, session_id: str) -> None:
         """Remove a session from active tracking if present.
 
+        Note: This triggers lazy cleanup of expired sessions as a side effect.
+
         Args:
             session_id: The unique identifier of the session to close.
         """
         with self._lock:
+            self._cleanup_expired()
             self._sessions.pop(session_id, None)
 
     def list_active(self) -> list[str]:
@@ -165,19 +179,22 @@ class SessionManager:
             session.messages.append(message)
 
             if trim and len(session.messages) > self.max_messages:
-                # Trim oldest messages (keep most recent max_messages)
+                # Trim oldest messages in-place (keep most recent max_messages)
                 excess = len(session.messages) - self.max_messages
-                session.messages = session.messages[excess:]
+                del session.messages[:excess]
 
             return session
 
     def count(self) -> int:
         """Return the current number of active sessions.
 
+        Note: This triggers lazy cleanup of expired sessions first.
+
         Returns:
             Number of sessions currently being tracked.
         """
         with self._lock:
+            self._cleanup_expired()
             return len(self._sessions)
 
     def set_eviction_callback(self, callback: Callable[[Session], None] | None) -> None:
