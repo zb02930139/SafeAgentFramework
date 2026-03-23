@@ -112,6 +112,7 @@ class ToolDispatcher:
         tool_name: str,
         params: dict[str, Any],
         session_id: str,
+        tool_call_id: str | None = None,
     ) -> ToolResult[Any]:
         """Authorise and execute a tool call.
 
@@ -123,6 +124,9 @@ class ToolDispatcher:
             params: Raw input parameters for the tool.
             session_id: Non-empty identifier for the calling session, used in
                 audit logs.
+            tool_call_id: Optional unique identifier for the tool call, used
+                for provenance tracking when the LLM makes multiple identical
+                calls in one turn.
 
         Returns:
             A :class:`~safe_agent.modules.base.ToolResult`. On any failure
@@ -147,6 +151,7 @@ class ToolDispatcher:
                     session_id=session_id,
                     timestamp=timestamp,
                     tool_name=tool_name,
+                    tool_call_id=tool_call_id,
                     params=params,
                     resolved_conditions={},
                     decision=Decision.DENIED_IMPLICIT,
@@ -189,6 +194,7 @@ class ToolDispatcher:
                     session_id=session_id,
                     timestamp=timestamp,
                     tool_name=tool_name,
+                    tool_call_id=tool_call_id,
                     params=params,
                     resolved_conditions={},
                     decision=Decision.DENIED_IMPLICIT,
@@ -227,6 +233,7 @@ class ToolDispatcher:
                         session_id=session_id,
                         timestamp=timestamp,
                         tool_name=tool_name,
+                        tool_call_id=tool_call_id,
                         params=params,
                         resolved_conditions=resolved_conditions,
                         decision=Decision.DENIED_IMPLICIT,
@@ -243,6 +250,7 @@ class ToolDispatcher:
                     session_id=session_id,
                     timestamp=timestamp,
                     tool_name=tool_name,
+                    tool_call_id=tool_call_id,
                     params=params,
                     resolved_conditions=resolved_conditions,
                     decision=eval_result.decision,
@@ -288,6 +296,7 @@ class ToolDispatcher:
                     session_id=session_id,
                     timestamp=timestamp,
                     tool_name=tool_name,
+                    tool_call_id=tool_call_id,
                     params=params,
                     resolved_conditions=resolved_conditions,
                     decision=Decision.DENIED_IMPLICIT,
@@ -304,6 +313,7 @@ class ToolDispatcher:
                 session_id=session_id,
                 timestamp=timestamp,
                 tool_name=tool_name,
+                tool_call_id=tool_call_id,
                 params=params,
                 resolved_conditions=resolved_conditions,
                 decision=Decision.ALLOWED,

@@ -51,10 +51,20 @@ def restore_tool_name(name: str) -> str:
 
 
 class ToolCall(BaseModel):
-    """Represents a model-requested tool invocation."""
+    """Represents a model-requested tool invocation.
+
+    Attributes:
+        name: The fully-qualified tool name (e.g. ``"fs:ReadFile"``).
+        params: Input parameters for the tool call.
+        id: Optional unique identifier for the tool call, used for provenance
+            tracking when the LLM makes multiple identical calls in one turn.
+            Most LLM APIs (OpenAI, Anthropic) include this field; it propagates
+            through the event loop, dispatcher, and audit log.
+    """
 
     name: str
     params: dict[str, Any]
+    id: str | None = None
 
 
 class LLMResponse(BaseModel):

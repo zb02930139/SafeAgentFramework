@@ -396,3 +396,47 @@ class TestToolDispatcher:
         assert result.error == "Dispatch failed"
         assert call_count == 1
         assert _audit(tmp_path).read_entries() == []
+
+    async def test_tool_call_id_propagates_to_audit_log(self, tmp_path: Path) -> None:
+        """tool_call_id must appear in audit entries for allowed calls."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+        result = await dispatcher.dispatch(
+            "fs:Read", {"path": "/etc/hosts"}, "s1", tool_call_id="call-abc123"
+        )
+        assert result.success is True
+        entries = _audit(tmp_path).read_entries()
+        # All entries should have the tool_call_id
+        for entry in entries:
+            assert entry.tool_call_id == "call-abc123"
+
+    async def test_tool_call_id_in_audit_for_denied(self, tmp_path: Path) -> None:
+        """tool_call_id must appear in audit entries for denied calls."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
+        dispatcher = _make_dispatcher(module, _DENY_ALL, tmp_path)
+        await dispatcher.dispatch(
+            "fs:Read", {"path": "/etc/hosts"}, "s1", tool_call_id="call-xyz"
+        )
+        entries = _audit(tmp_path).read_entries()
+        assert len(entries) == 1
+        assert entries[0].tool_call_id == "call-xyz"
+        assert entries[0].decision == Decision.DENIED_EXPLICIT
+
+    async def test_tool_call_id_in_audit_for_unknown_tool(self, tmp_path: Path) -> None:
+        """tool_call_id must appear in audit entries for unknown tool probes."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read")
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+        await dispatcher.dispatch("ghost:Op", {}, "s1", tool_call_id="call-unknown")
+        entries = _audit(tmp_path).read_entries()
+        assert len(entries) == 1
+        assert entries[0].tool_call_id == "call-unknown"
+        assert entries[0].matched_statements == ["__unknown_tool__"]
+
+    async def test_tool_call_id_none_when_not_provided(self, tmp_path: Path) -> None:
+        """When tool_call_id is not provided, audit entries should have None."""
+        module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+        await dispatcher.dispatch("fs:Read", {"path": "/etc/hosts"}, "s1")
+        entries = _audit(tmp_path).read_entries()
+        for entry in entries:
+            assert entry.tool_call_id is None

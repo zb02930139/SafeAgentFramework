@@ -133,18 +133,20 @@ class EventLoop:
                                 tool_call.name,
                                 tool_call.params,
                                 session.id,
+                                tool_call.id,
                             )
                             content = json.dumps(result.model_dump())
                         except Exception as exc:
                             content = json.dumps({"error": str(exc)})
 
-                        session.messages.append(
-                            {
-                                "role": "tool",
-                                "name": tool_call.name,
-                                "content": content,
-                            }
-                        )
+                        tool_msg: dict = {
+                            "role": "tool",
+                            "name": tool_call.name,
+                            "content": content,
+                        }
+                        if tool_call.id is not None:
+                            tool_msg["tool_call_id"] = tool_call.id
+                        session.messages.append(tool_msg)
 
                 turn_count += 1
                 if turn_count >= self._max_turns:

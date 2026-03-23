@@ -17,15 +17,16 @@ from safe_agent.modules.registry import ModuleRegistry
 
 class _FakeDispatcher:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any], str]] = []
+        self.calls: list[tuple[str, dict[str, Any], str, str | None]] = []
 
     async def dispatch(
         self,
         tool_name: str,
         params: dict[str, Any],
         session_id: str,
+        tool_call_id: str | None = None,
     ) -> ToolResult[Any]:
-        self.calls.append((tool_name, params, session_id))
+        self.calls.append((tool_name, params, session_id, tool_call_id))
         return ToolResult(success=True, data={"echo": params})
 
 
@@ -35,8 +36,9 @@ class _FailingDispatcher(_FakeDispatcher):
         tool_name: str,
         params: dict[str, Any],
         session_id: str,
+        tool_call_id: str | None = None,
     ) -> ToolResult[Any]:
-        self.calls.append((tool_name, params, session_id))
+        self.calls.append((tool_name, params, session_id, tool_call_id))
         msg = f"boom for {tool_name}"
         raise RuntimeError(msg)
 
@@ -128,12 +130,12 @@ def test_tool_call_then_text(registry: ModuleRegistry) -> None:
     result = asyncio.run(event_loop.process_turn(session, "run tool"))
 
     assert result == "tool complete"
-    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1")]
+    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1", None)]
     assert session.messages[0] == {"role": "user", "content": "run tool"}
     assert session.messages[1] == {
         "role": "assistant",
         "content": None,
-        "tool_calls": [{"name": "demo:echo", "params": {"value": 1}}],
+        "tool_calls": [{"name": "demo:echo", "params": {"value": 1}, "id": None}],
     }
     assert session.messages[2]["role"] == "tool"
     assert session.messages[2]["name"] == "demo:echo"
@@ -163,7 +165,7 @@ def test_tool_dispatch_failure_appends_error_tool_message(
     result = asyncio.run(event_loop.process_turn(session, "run tool"))
 
     assert result == "tool failed cleanly"
-    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1")]
+    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1", None)]
     assert session.messages[2] == {
         "role": "tool",
         "name": "demo:echo",
@@ -313,7 +315,7 @@ def test_llm_tool_call_name_restored_before_dispatch(
 
     asyncio.run(event_loop.process_turn(session, "run tool"))
 
-    dispatched_name, _, _ = dispatcher.calls[0]
+    dispatched_name, _, _, _ = dispatcher.calls[0]
     assert dispatched_name == "demo:echo", (
         f"Expected canonical 'demo:echo' at dispatch, got '{dispatched_name}'"
     )
@@ -370,3 +372,86 @@ def test_sanitized_history_sent_to_llm_on_second_turn(
                 f"History tool_call name '{tc['name']}' "
                 "not sanitized on second LLM call"
             )
+
+
+# ---------------------------------------------------------------------------
+# Tool call ID provenance tests
+# ---------------------------------------------------------------------------
+
+
+def test_tool_call_id_propagates_to_dispatcher(registry: ModuleRegistry) -> None:
+    """ToolCall.id must flow through to the dispatcher."""
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(name="demo:echo", params={"value": 1}, id="call-abc123")
+                ]
+            ),
+            LLMResponse(content="done"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    asyncio.run(event_loop.process_turn(session, "run tool"))
+
+    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1", "call-abc123")]
+
+
+def test_tool_call_id_in_session_transcript(registry: ModuleRegistry) -> None:
+    """Tool result messages must include tool_call_id when present."""
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(name="demo:echo", params={"value": 1}, id="call-xyz")
+                ]
+            ),
+            LLMResponse(content="done"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    asyncio.run(event_loop.process_turn(session, "run tool"))
+
+    # Assistant message with tool_calls
+    assistant_msg = session.messages[1]
+    assert assistant_msg["tool_calls"][0]["id"] == "call-xyz"
+
+    # Tool result message
+    tool_msg = session.messages[2]
+    assert tool_msg["tool_call_id"] == "call-xyz"
+
+
+def test_multiple_tool_calls_with_distinct_ids(registry: ModuleRegistry) -> None:
+    """Multiple tool calls in one turn must preserve distinct IDs."""
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(name="demo:echo", params={"n": 1}, id="call-a"),
+                    ToolCall(name="demo:echo", params={"n": 2}, id="call-b"),
+                ]
+            ),
+            LLMResponse(content="done"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    asyncio.run(event_loop.process_turn(session, "run tools"))
+
+    # Dispatcher sees both calls with correct IDs
+    assert dispatcher.calls[0] == ("demo:echo", {"n": 1}, "session-1", "call-a")
+    assert dispatcher.calls[1] == ("demo:echo", {"n": 2}, "session-1", "call-b")
+
+    # Session transcript has both tool results with correct IDs
+    tool_msg_1 = session.messages[2]
+    assert tool_msg_1["tool_call_id"] == "call-a"
+    tool_msg_2 = session.messages[3]
+    assert tool_msg_2["tool_call_id"] == "call-b"

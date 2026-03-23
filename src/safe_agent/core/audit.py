@@ -61,6 +61,9 @@ class AuditEntry(BaseModel):
         session_id: Identifier for the session that triggered the tool call.
         timestamp: ISO-8601 UTC timestamp of the decision.
         tool_name: The fully-qualified tool name that was evaluated.
+        tool_call_id: Optional unique identifier for the tool call, used for
+            provenance tracking when the LLM makes multiple identical calls.
+            Propagated from :class:`~safe_agent.core.llm.ToolCall.id`.
         params: Input parameters for the tool call, capped at
             ``_MAX_PARAM_BYTES`` (8 KB). Values exceeding the cap are replaced
             with ``{"__truncated__": True}``. Callers should also redact
@@ -78,6 +81,7 @@ class AuditEntry(BaseModel):
     session_id: str
     timestamp: str
     tool_name: str
+    tool_call_id: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     resolved_conditions: dict[str, Any] = Field(default_factory=dict)
     decision: Decision
