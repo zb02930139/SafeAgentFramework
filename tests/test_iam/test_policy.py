@@ -91,6 +91,13 @@ class TestPolicyStoreLoad:
         store.load(tmp_path)
         assert store.get_all_statements() == []
 
+    def test_load_after_freeze_raises(self, tmp_path):
+        write_json(tmp_path, "policy.json", VALID_POLICY)
+        store = PolicyStore()
+        store.freeze()
+        with pytest.raises(RuntimeError, match="frozen"):
+            store.load(tmp_path)
+
 
 class TestPolicyStoreAddPolicy:
     """Tests for PolicyStore.add_policy()."""

@@ -43,8 +43,13 @@ class PolicyStore:
         Raises:
             ValueError: If a file contains an unrecognised ``Version`` value
                 or fails Pydantic validation.
+            RuntimeError: If the store has been frozen via :meth:`freeze`.
             FileNotFoundError: If *directory* does not exist.
         """
+        if self._frozen:
+            raise RuntimeError(
+                "PolicyStore is frozen; no further policies may be added."
+            )
         for json_file in sorted(directory.glob("*.json")):
             raw = json_file.read_text(encoding="utf-8")
             data = json.loads(raw)
@@ -86,8 +91,8 @@ class PolicyStore:
     def freeze(self) -> None:
         """Make the store immutable.
 
-        After calling :meth:`freeze`, any call to :meth:`add_policy` will
-        raise a :class:`RuntimeError`.
+        After calling :meth:`freeze`, any call to :meth:`add_policy` or
+        :meth:`load` will raise a :class:`RuntimeError`.
         """
         self._frozen = True
 
