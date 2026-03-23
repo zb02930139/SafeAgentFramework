@@ -128,21 +128,20 @@ class ShellModule(BaseModule):
             return ToolResult(success=False, error=str(exc))
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
-            )
+            (
+                stdout_text,
+                stderr_text,
+                stdout_truncated,
+                stderr_truncated,
+            ) = await self._read_output_incremental(process, timeout)
         except TimeoutError:
-            process.kill()
+            self._safe_kill(process)
             await process.communicate()
             return ToolResult(success=False, error="Command timed out")
         except Exception as exc:  # pragma: no cover - defensive catch
-            process.kill()
+            self._safe_kill(process)
             await process.communicate()
             return ToolResult(success=False, error=str(exc))
-
-        stdout_text, stdout_truncated = self._decode_and_truncate(stdout_bytes)
-        stderr_text, stderr_truncated = self._decode_and_truncate(stderr_bytes)
 
         metadata: dict[str, Any] = {}
         if stdout_truncated or stderr_truncated:
@@ -205,9 +204,139 @@ class ShellModule(BaseModule):
             return str(self.working_directory)
         return str(Path.cwd())
 
-    def _decode_and_truncate(self, output: bytes) -> tuple[str, bool]:
-        """Decode subprocess output, truncating to the configured byte limit."""
-        truncated = len(output) > self.max_output_size
-        if truncated:
-            output = output[: self.max_output_size]
-        return output.decode("utf-8", errors="replace"), truncated
+    async def _read_output_incremental(
+        self,
+        process: asyncio.subprocess.Process,
+        timeout: float,
+    ) -> tuple[str, str, bool, bool]:
+        """Read stdout/stderr incrementally with byte limit.
+
+        Returns (stdout_text, stderr_text, stdout_truncated, stderr_truncated).
+        Tracks total elapsed time against timeout deadline.
+        Kills process if output exceeds limit (per issue #30 requirements).
+        """
+        if process.stdout is None or process.stderr is None:
+            raise RuntimeError("Process stdout/stderr not available")
+
+        collected_stdout = bytearray()
+        collected_stderr = bytearray()
+        total_bytes = 0
+        stdout_truncated = False
+        stderr_truncated = False
+        limits_hit = asyncio.Event()
+        deadline = asyncio.get_event_loop().time() + timeout
+
+        async def read_stream(
+            stream: asyncio.StreamReader,
+            collected: bytearray,
+            is_stdout: bool,
+            lock: asyncio.Lock,
+        ) -> bool:
+            """Read from stream until EOF, byte limit, or deadline.
+
+            Returns True if truncated.
+            """
+            nonlocal total_bytes
+            nonlocal stdout_truncated
+            nonlocal stderr_truncated
+
+            truncated = False
+            while not limits_hit.is_set():
+                # Check deadline before each read
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("Total timeout exceeded")
+
+                try:
+                    chunk = await asyncio.wait_for(
+                        stream.read(65536), timeout=remaining
+                    )
+                except TimeoutError:
+                    raise TimeoutError("Total timeout exceeded") from None
+                except Exception:
+                    break
+
+                if not chunk:
+                    break
+
+                async with lock:
+                    # Check limit under lock to avoid race conditions
+                    if total_bytes >= self.max_output_size:
+                        limits_hit.set()
+                        truncated = True
+                        if is_stdout:
+                            stdout_truncated = True
+                        else:
+                            stderr_truncated = True
+                        break
+
+                    room = self.max_output_size - total_bytes
+                    if len(chunk) > room:
+                        # Truncate this chunk
+                        chunk = chunk[:room]
+                        truncated = True
+                        limits_hit.set()
+                        if is_stdout:
+                            stdout_truncated = True
+                        else:
+                            stderr_truncated = True
+
+                    collected.extend(chunk)
+                    total_bytes += len(chunk)
+
+            return truncated
+
+        lock = asyncio.Lock()
+        stdout_task = asyncio.create_task(
+            read_stream(process.stdout, collected_stdout, True, lock)
+        )
+        stderr_task = asyncio.create_task(
+            read_stream(process.stderr, collected_stderr, False, lock)
+        )
+
+        # Wait for both readers with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(stdout_task, stderr_task),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            stdout_task.cancel()
+            stderr_task.cancel()
+            # Wait for tasks to cancel
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(stdout_task, stderr_task, return_exceptions=True),
+                    timeout=1.0,
+                )
+            except TimeoutError:
+                pass
+            raise TimeoutError("Command timed out") from None
+
+        # If limits hit, kill the process (per issue #30 requirements)
+        if limits_hit.is_set():
+            self._safe_kill(process)
+            # Drain any remaining data to prevent broken pipe issues
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:  # noqa: UP041
+                pass
+        else:
+            # Wait for process to complete normally
+            try:
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+            except TimeoutError:
+                self._safe_kill(process)
+                raise TimeoutError("Command timed out") from None
+
+        stdout_text = collected_stdout.decode("utf-8", errors="replace")
+        stderr_text = collected_stderr.decode("utf-8", errors="replace")
+
+        return stdout_text, stderr_text, stdout_truncated, stderr_truncated
+
+    def _safe_kill(self, process: asyncio.subprocess.Process) -> None:
+        """Kill process safely, ignoring ProcessLookupError if already dead."""
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass  # Already terminated

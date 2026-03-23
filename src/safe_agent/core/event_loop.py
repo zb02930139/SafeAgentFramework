@@ -32,9 +32,9 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     for msg in messages:
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             sanitized_calls = [
-                {**tc, "name": sanitize_tool_name(tc["name"])}
+                {**tc, "name": sanitize_tool_name(tc["name"]) if "name" in tc else tc}
                 for tc in msg["tool_calls"]
-                if tc.get("name") is not None
+                if "name" in tc
             ]
             sanitized.append({**msg, "tool_calls": sanitized_calls})
         elif msg.get("role") == "tool" and msg.get("name"):
