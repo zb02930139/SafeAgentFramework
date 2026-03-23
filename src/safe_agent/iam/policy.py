@@ -91,8 +91,8 @@ class PolicyStore:
     def freeze(self) -> None:
         """Make the store immutable.
 
-        After calling :meth:`freeze`, any call to :meth:`add_policy` will
-        raise a :class:`RuntimeError`.
+        After calling :meth:`freeze`, any call to :meth:`add_policy` or
+        :meth:`load` will raise a :class:`RuntimeError`.
         """
         self._frozen = True
 
