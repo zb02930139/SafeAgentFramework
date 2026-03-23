@@ -304,3 +304,13 @@ class TestFilesystemModule:
 
         with pytest.raises(ValueError, match="max_write_size must be positive"):
             FilesystemModule(tmp_path, max_write_size=-1)
+
+    def test_init_defaults_root_to_cwd(self) -> None:
+        """__init__ should default root to Path.cwd() when not provided."""
+        module = FilesystemModule()
+        assert module.root == Path.cwd().resolve()
+
+    def test_init_defaults_root_to_cwd_when_none_passed(self) -> None:
+        """__init__ should default root to Path.cwd() when None is passed."""
+        module = FilesystemModule(root=None)
+        assert module.root == Path.cwd().resolve()

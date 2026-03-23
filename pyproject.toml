@@ -42,6 +42,10 @@ dev = [
     "types-aiofiles>=24.1.0",
 ]
 
+[project.entry-points."safe_agent.modules"]
+filesystem = "safe_agent.modules.filesystem:FilesystemModule"
+shell = "safe_agent.modules.shell:ShellModule"
+
 [project.urls]
 Repository = "https://github.com/zbrooks422/safeagentframework"
 

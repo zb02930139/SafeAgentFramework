@@ -454,3 +454,32 @@ class TestModuleRegistry:
         assert registry.get_tool("shared:Manual") is not None
         assert registry.get_tool("shared:Discovered") is None
         assert registry._discovered is False
+
+    def test_discover_loads_builtin_modules_from_real_entry_points(self) -> None:
+        """discover() should load FilesystemModule and ShellModule from package.
+
+        Integration test verifying entry points in pyproject.toml resolve.
+        Dogfood test for issue #28.
+        """
+        registry = ModuleRegistry()
+        registry.discover()
+
+        # Both built-in modules should be registered
+        assert registry.get_module("filesystem") is not None
+        assert registry.get_module("shell") is not None
+
+        # Check filesystem tools are present
+        fs_tools = {
+            "filesystem:read_file",
+            "filesystem:write_file",
+            "filesystem:list_directory",
+            "filesystem:delete_file",
+            "filesystem:move_file",
+        }
+        assert fs_tools.issubset({t.name for t in registry.get_all_tool_descriptors()})
+
+        # Check shell tools are present
+        shell_tools = {"shell:execute"}
+        assert shell_tools.issubset(
+            {t.name for t in registry.get_all_tool_descriptors()}
+        )

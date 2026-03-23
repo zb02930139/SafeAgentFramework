@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from safe_agent.modules.base import (
     ToolResult,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class FilesystemModule(BaseModule):
     """Provide sandboxed filesystem operations rooted at a single directory."""
@@ -21,12 +24,13 @@ class FilesystemModule(BaseModule):
     DEFAULT_MAX_WRITE_SIZE = 10 * 1024 * 1024  # 10MB default
 
     def __init__(
-        self, root: Path, max_write_size: int = DEFAULT_MAX_WRITE_SIZE
+        self, root: Path | None = None, max_write_size: int = DEFAULT_MAX_WRITE_SIZE
     ) -> None:
         """Initialise the module with an allowed filesystem root.
 
         Args:
-            root: The allowed filesystem root directory.
+            root: The allowed filesystem root directory. Defaults to the current
+                working directory if not specified.
             max_write_size: Maximum bytes allowed per file write (default 10MB).
 
         Raises:
@@ -34,7 +38,13 @@ class FilesystemModule(BaseModule):
         """
         if max_write_size <= 0:
             raise ValueError("max_write_size must be positive")
-        self.root = root.resolve()
+        self.root = (root or Path.cwd()).resolve()
+        if root is None:
+            logger.warning(
+                "FilesystemModule instantiated without explicit root; "
+                "defaulting to cwd: %s. This may grant broader access than intended.",
+                self.root,
+            )
         self.max_write_size = max_write_size
 
     def describe(self) -> ModuleDescriptor:
