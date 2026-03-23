@@ -222,3 +222,28 @@ class TestShellModule:
 
         assert result.success is False
         assert result.error == "Unknown tool: shell:unknown"
+
+    async def test_incremental_reading_huge_output(self, tmp_path: Path) -> None:
+        """Huge output should be truncated via incremental reading without OOM."""
+        module = ShellModule(working_directory=tmp_path, max_output_size=1000)
+
+        # Generate output larger than max_output_size
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": [
+                    "-c",
+                    "import sys; print('x' * 10000); print('y' * 10000, file=sys.stderr)",
+                ],
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        # Total output should be at most max_output_size
+        total_bytes = len(result.data["stdout"].encode("utf-8")) + len(
+            result.data["stderr"].encode("utf-8")
+        )
+        assert total_bytes <= 1000
+        assert result.metadata["output_truncated"] is True

@@ -128,9 +128,8 @@ class ShellModule(BaseModule):
             return ToolResult(success=False, error=str(exc))
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
+            stdout_text, stderr_text, stdout_truncated, stderr_truncated = await self._read_output_incremental(
+                process, timeout
             )
         except TimeoutError:
             process.kill()
@@ -140,9 +139,6 @@ class ShellModule(BaseModule):
             process.kill()
             await process.communicate()
             return ToolResult(success=False, error=str(exc))
-
-        stdout_text, stdout_truncated = self._decode_and_truncate(stdout_bytes)
-        stderr_text, stderr_truncated = self._decode_and_truncate(stderr_bytes)
 
         metadata: dict[str, Any] = {}
         if stdout_truncated or stderr_truncated:
@@ -204,6 +200,74 @@ class ShellModule(BaseModule):
         if self.working_directory is not None:
             return str(self.working_directory)
         return str(Path.cwd())
+
+    async def _read_output_incremental(
+        self,
+        process: asyncio.subprocess.Process,
+        timeout: float,
+    ) -> tuple[str, str, bool, bool]:
+        """Read stdout/stderr incrementally with byte limit.
+
+        Returns (stdout_text, stderr_text, stdout_truncated, stderr_truncated).
+        """
+        assert process.stdout is not None
+        assert process.stderr is not None
+
+        collected_stdout = bytearray()
+        collected_stderr = bytearray()
+        stdout_truncated = False
+        stderr_truncated = False
+
+        async def read_stream(stream: asyncio.StreamReader, collected: bytearray) -> bool:
+            """Read from stream until EOF or byte limit. Returns True if truncated."""
+            truncated = False
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        stream.read(65536),
+                        timeout=timeout,
+                    )
+                except TimeoutError:
+                    raise
+                if not chunk:
+                    break
+
+                # Check if adding this chunk would exceed max_output_size
+                current_total = len(collected_stdout) + len(collected_stderr)
+                if current_total + len(chunk) > self.max_output_size:
+                    # Only take part of the chunk to hit the limit
+                    remaining = self.max_output_size - current_total
+                    if remaining > 0:
+                        chunk = chunk[:remaining]
+                        collected.extend(chunk)
+                    truncated = True
+                    # Stop reading this stream
+                    break
+                collected.extend(chunk)
+
+            return truncated
+
+        # Read both streams concurrently
+        await asyncio.gather(
+            read_stream(process.stdout, collected_stdout),
+            read_stream(process.stderr, collected_stderr),
+        )
+
+        # Wait for process to complete
+        await asyncio.wait_for(process.wait(), timeout=timeout)
+
+        # Check if truncation happened
+        total_bytes = len(collected_stdout) + len(collected_stderr)
+        if total_bytes >= self.max_output_size:
+            # Determine which stream(s) got truncated
+            # This is a simplification - both get marked if we hit the overall limit
+            stdout_truncated = len(collected_stdout) >= self.max_output_size // 2
+            stderr_truncated = len(collected_stderr) >= self.max_output_size // 2
+
+        stdout_text = collected_stdout.decode("utf-8", errors="replace")
+        stderr_text = collected_stderr.decode("utf-8", errors="replace")
+
+        return stdout_text, stderr_text, stdout_truncated, stderr_truncated
 
     def _decode_and_truncate(self, output: bytes) -> tuple[str, bool]:
         """Decode subprocess output, truncating to the configured byte limit."""

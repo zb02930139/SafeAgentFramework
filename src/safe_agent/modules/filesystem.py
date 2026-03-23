@@ -18,9 +18,17 @@ from safe_agent.modules.base import (
 class FilesystemModule(BaseModule):
     """Provide sandboxed filesystem operations rooted at a single directory."""
 
-    def __init__(self, root: Path) -> None:
-        """Initialise the module with an allowed filesystem root."""
+    DEFAULT_MAX_WRITE_SIZE = 10 * 1024 * 1024  # 10MB default
+
+    def __init__(self, root: Path, max_write_size: int = DEFAULT_MAX_WRITE_SIZE) -> None:
+        """Initialise the module with an allowed filesystem root.
+
+        Args:
+            root: The allowed filesystem root directory.
+            max_write_size: Maximum bytes allowed per file write (default 10MB).
+        """
         self.root = root.resolve()
+        self.max_write_size = max_write_size
 
     def describe(self) -> ModuleDescriptor:
         """Return the filesystem module descriptor and tool definitions."""
@@ -216,6 +224,13 @@ class FilesystemModule(BaseModule):
         path = self._resolve_path(str(params["path"]))
         encoding = str(params.get("encoding", "utf-8"))
         content = str(params["content"])
+        content_bytes = content.encode(encoding)
+
+        if len(content_bytes) > self.max_write_size:
+            return ToolResult(
+                success=False,
+                error=f"File size {len(content_bytes)} bytes exceeds maximum {self.max_write_size} bytes",
+            )
 
         if path.exists() and path.is_dir():
             return ToolResult(success=False, error="Path is a directory")
@@ -228,7 +243,7 @@ class FilesystemModule(BaseModule):
             success=True,
             data={
                 "path": str(path.relative_to(self.root)),
-                "bytes_written": len(content.encode(encoding)),
+                "bytes_written": len(content_bytes),
             },
         )
 
