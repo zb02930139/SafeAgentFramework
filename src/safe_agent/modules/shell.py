@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shlex
 from pathlib import Path
@@ -15,6 +16,58 @@ from safe_agent.modules.base import (
     ToolResult,
 )
 
+logger = logging.getLogger(__name__)
+
+# Default PATH for subprocesses - known-safe directories only
+# Covers Linux and macOS common binary locations
+_DEFAULT_SAFE_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+# Environment variables that are blocked from LLM override for security.
+# These can affect process execution behavior in dangerous ways.
+#
+# Categories:
+# - Binary/library injection: PATH, LD_*, DYLD_* (macOS)
+# - Shell code injection: BASH_ENV, ENV, ENVIRONMENT
+# - Interpreter code injection: PYTHON*, NODE_OPTIONS, PERL5OPT, RUBYOPT,
+#   JAVA_TOOL_OPTIONS
+# - Debug manipulation: LD_DEBUG
+_BLOCKED_ENV_OVERRIDES: frozenset[str] = frozenset(
+    {
+        # Binary execution control
+        "PATH",
+        # Linux library injection
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",  # Equivalent to LD_PRELOAD on Linux
+        "LD_DEBUG",
+        # macOS library injection
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        # Shell code injection
+        "BASH_ENV",
+        "ENV",
+        "ENVIRONMENT",
+        # Python code injection
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONEXECUTABLE",
+        "PYTHONSTARTUP",
+        # Node.js code injection
+        "NODE_OPTIONS",
+        # Perl code injection
+        "PERL5OPT",
+        "PERL5LIB",
+        # Ruby code injection
+        "RUBYOPT",
+        "RUBYLIB",
+        # Java options injection
+        "JAVA_TOOL_OPTIONS",
+        "_JAVA_OPTIONS",
+        "JAVA_OPTS",
+    }
+)
+
 
 class ShellModule(BaseModule):
     """Provide controlled subprocess execution with time and output limits."""
@@ -24,6 +77,7 @@ class ShellModule(BaseModule):
         working_directory: Path | None = None,
         default_timeout: float = 30.0,
         max_output_size: int = 1024 * 1024,
+        allowed_env_vars: list[str] | None = None,
     ) -> None:
         """Initialise shell execution settings.
 
@@ -31,12 +85,18 @@ class ShellModule(BaseModule):
             working_directory: Optional working directory for subprocesses.
             default_timeout: Timeout used when a tool call does not override it.
             max_output_size: Maximum bytes retained for each output stream.
+            allowed_env_vars: Whitelist of host environment variable names to
+                pass through to subprocesses. If None or empty, no host env vars
+                are inherited (secure default). Note: The security blocklist only
+                applies to LLM-provided env overrides; operators are trusted, so
+                vars in this whitelist (including PATH) will override defaults.
         """
         self.working_directory = (
             working_directory.resolve() if working_directory is not None else None
         )
         self.default_timeout = default_timeout
         self.max_output_size = max_output_size
+        self.allowed_env_vars = set(allowed_env_vars) if allowed_env_vars else set()
 
     def describe(self) -> ModuleDescriptor:
         """Return the shell module descriptor and tool definition."""
@@ -175,13 +235,41 @@ class ShellModule(BaseModule):
         return [*command_parts, *explicit_args]
 
     def _build_env(self, params: dict[str, Any]) -> dict[str, str]:
-        """Construct the subprocess environment."""
-        env = os.environ.copy()
+        """Construct the subprocess environment with security controls.
+
+        Security measures:
+        - Starts with minimal base environment (safe PATH only)
+        - Only whitelisted host env vars are inherited
+        - Blocked variables (PATH, LD_PRELOAD, etc.) cannot be overridden by LLM
+
+        Returns:
+            Sanitized environment dictionary for subprocess execution.
+        """
+        # Start with minimal base environment
+        env: dict[str, str] = {"PATH": _DEFAULT_SAFE_PATH}
+
+        # Pass through only whitelisted host environment variables
+        for key in self.allowed_env_vars:
+            if key in os.environ:
+                env[key] = os.environ[key]
+
+        # Process LLM-provided env overrides
         raw_env = params.get("env", {})
         if not isinstance(raw_env, dict):
             raise ValueError("env must be an object of string key/value pairs")
 
-        env.update({str(key): str(value) for key, value in raw_env.items()})
+        for key, value in raw_env.items():
+            key_str = str(key)
+            # Block dangerous environment variable overrides
+            if key_str in _BLOCKED_ENV_OVERRIDES:
+                # Log blocked override attempts for security auditing
+                logger.warning(
+                    "Blocked dangerous env var override attempt: %s",
+                    key_str,
+                )
+                continue
+            env[key_str] = str(value)
+
         return env
 
     def _timeout_value(self, params: dict[str, Any]) -> float:

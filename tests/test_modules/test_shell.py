@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+from unittest import mock
+
+import pytest
 
 from safe_agent.modules.shell import ShellModule
 
@@ -277,3 +281,364 @@ class TestShellModule:
         # Should be truncated since emojis are multi-byte
         total_bytes = len(result.data["stdout"].encode("utf-8"))
         assert total_bytes <= limit
+
+
+class TestShellModuleEnvSecurity:
+    """Tests for secure environment variable handling (Issue #25)."""
+
+    async def test_default_env_is_minimal(self, tmp_path: Path) -> None:
+        """By default, no host env vars should be inherited except safe PATH."""
+        module = ShellModule(working_directory=tmp_path)
+
+        # Set a sensitive host env var for testing
+        with mock.patch.dict(os.environ, {"SECRET_API_KEY": "secret-value-123"}):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": [
+                        "-c",
+                        "import os; print(os.environ.get('SECRET_API_KEY', 'NONE'))",
+                    ],
+                },
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "NONE"
+
+    async def test_default_path_is_safe(self, tmp_path: Path) -> None:
+        """Default PATH should be limited to known-safe directories."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": ["-c", "import os; print(os.environ['PATH'])"],
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        # Should be safe path, not host PATH
+        assert result.data["stdout"].strip() == "/usr/local/bin:/usr/bin:/bin"
+
+    async def test_allowed_env_vars_pass_through(self, tmp_path: Path) -> None:
+        """Whitelisted host env vars should be inherited."""
+        module = ShellModule(
+            working_directory=tmp_path,
+            allowed_env_vars=["SAFE_AGENT_TEST_VAR"],
+        )
+
+        with mock.patch.dict(os.environ, {"SAFE_AGENT_TEST_VAR": "passed-through"}):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": [
+                        "-c",
+                        "import os; print(os.environ['SAFE_AGENT_TEST_VAR'])",
+                    ],
+                },
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "passed-through"
+
+    async def test_non_whitelisted_env_vars_blocked(self, tmp_path: Path) -> None:
+        """Non-whitelisted host env vars should not be inherited."""
+        module = ShellModule(
+            working_directory=tmp_path,
+            allowed_env_vars=["SAFE_AGENT_TEST_VAR"],
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {"SAFE_AGENT_TEST_VAR": "allowed", "SECRET_KEY": "blocked"},
+        ):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": [
+                        "-c",
+                        (
+                            "import os; "
+                            "print(os.environ.get('SAFE_AGENT_TEST_VAR', 'NONE'), "
+                            "os.environ.get('SECRET_KEY', 'NONE'))"
+                        ),
+                    ],
+                },
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        assert "allowed" in result.data["stdout"]
+        assert "blocked" not in result.data["stdout"]
+        assert result.data["stdout"].count("NONE") == 1
+
+    async def test_path_override_blocked(self, tmp_path: Path) -> None:
+        """LLM cannot override PATH via env parameter."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": ["-c", "import os; print(os.environ['PATH'])"],
+                "env": {"PATH": "/malicious/path:/usr/bin"},
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        # Should still be safe path, not malicious one
+        assert result.data["stdout"].strip() == "/usr/local/bin:/usr/bin:/bin"
+        assert "/malicious" not in result.data["stdout"]
+
+    async def test_ld_preload_override_blocked(self, tmp_path: Path) -> None:
+        """LLM cannot inject LD_PRELOAD via env parameter."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": [
+                    "-c",
+                    "import os; print(os.environ.get('LD_PRELOAD', 'NONE'))",
+                ],
+                "env": {"LD_PRELOAD": "/malicious/lib.so"},
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "NONE"
+
+    async def test_ld_library_path_override_blocked(self, tmp_path: Path) -> None:
+        """LLM cannot inject LD_LIBRARY_PATH via env parameter."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": [
+                    "-c",
+                    "import os; print(os.environ.get('LD_LIBRARY_PATH', 'NONE'))",
+                ],
+                "env": {"LD_LIBRARY_PATH": "/malicious/lib"},
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "NONE"
+
+    async def test_pythonpath_override_blocked(self, tmp_path: Path) -> None:
+        """LLM cannot inject PYTHONPATH via env parameter."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": [
+                    "-c",
+                    "import os; print(os.environ.get('PYTHONPATH', 'NONE'))",
+                ],
+                "env": {"PYTHONPATH": "/malicious/python"},
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "NONE"
+
+    async def test_allowed_env_var_but_blocked_override_still_blocked(
+        self, tmp_path: Path
+    ) -> None:
+        """Even if PATH is in allowed_env_vars, LLM cannot override it."""
+        module = ShellModule(
+            working_directory=tmp_path,
+            allowed_env_vars=["PATH"],  # Explicitly allow PATH passthrough
+        )
+
+        # Host has a custom PATH
+        with mock.patch.dict(os.environ, {"PATH": "/custom/host/path"}):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": ["-c", "import os; print(os.environ['PATH'])"],
+                    "env": {"PATH": "/malicious/override"},
+                },
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        # Should have host PATH, not malicious override
+        assert result.data["stdout"].strip() == "/custom/host/path"
+
+    async def test_safe_env_override_works(self, tmp_path: Path) -> None:
+        """Non-blocked env overrides from LLM should work."""
+        module = ShellModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": ["-c", "import os; print(os.environ['MY_APP_CONFIG'])"],
+                "env": {"MY_APP_CONFIG": "safe-value"},
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["stdout"].strip() == "safe-value"
+
+    async def test_all_blocked_vars_simultaneously(self, tmp_path: Path) -> None:
+        """Test all blocked env vars are rejected together."""
+        module = ShellModule(working_directory=tmp_path)
+
+        blocked_vars = {
+            # Binary/library injection
+            "PATH": "/evil/bin",
+            "LD_PRELOAD": "/evil/lib.so",
+            "LD_LIBRARY_PATH": "/evil/lib",
+            "LD_AUDIT": "/evil/audit.so",
+            "LD_DEBUG": "all",
+            # macOS library injection
+            "DYLD_INSERT_LIBRARIES": "/evil/dylib.so",
+            "DYLD_LIBRARY_PATH": "/evil/dylib",
+            "DYLD_FRAMEWORK_PATH": "/evil/framework",
+            # Shell code injection
+            "BASH_ENV": "/evil/bash.sh",
+            "ENV": "/evil/env.sh",
+            "ENVIRONMENT": "/evil/environment",
+            # Python code injection
+            "PYTHONPATH": "/evil/python",
+            "PYTHONHOME": "/evil/pyhome",
+            "PYTHONEXECUTABLE": "/evil/python",
+            "PYTHONSTARTUP": "/evil/startup.py",
+            # Node.js code injection
+            "NODE_OPTIONS": "--require=/evil/node.js",
+            # Perl code injection
+            "PERL5OPT": "-I/evil/perl",
+            "PERL5LIB": "/evil/perl/lib",
+            # Ruby code injection
+            "RUBYOPT": "-I/evil/ruby",
+            "RUBYLIB": "/evil/ruby/lib",
+            # Java options injection
+            "JAVA_TOOL_OPTIONS": "-Devil=true",
+            "_JAVA_OPTIONS": "-Devil=true",
+            "JAVA_OPTS": "-Devil=true",
+        }
+
+        result = await module.execute(
+            "shell:execute",
+            {
+                "command": sys.executable,
+                "args": [
+                    "-c",
+                    (
+                        "import os; "
+                        "import json; "
+                        "data = {"
+                        "'PATH': os.environ.get('PATH', 'NONE'), "
+                        "'LD_PRELOAD': os.environ.get('LD_PRELOAD', 'NONE'), "
+                        "'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH', 'NONE'), "
+                        "'LD_AUDIT': os.environ.get('LD_AUDIT', 'NONE'), "
+                        "'LD_DEBUG': os.environ.get('LD_DEBUG', 'NONE'), "
+                        "'DYLD_INSERT_LIBRARIES': os.environ.get("
+                        "'DYLD_INSERT_LIBRARIES', 'NONE'), "
+                        "'DYLD_LIBRARY_PATH': os.environ.get("
+                        "'DYLD_LIBRARY_PATH', 'NONE'), "
+                        "'DYLD_FRAMEWORK_PATH': os.environ.get("
+                        "'DYLD_FRAMEWORK_PATH', 'NONE'), "
+                        "'BASH_ENV': os.environ.get('BASH_ENV', 'NONE'), "
+                        "'ENV': os.environ.get('ENV', 'NONE'), "
+                        "'ENVIRONMENT': os.environ.get('ENVIRONMENT', 'NONE'), "
+                        "'PYTHONPATH': os.environ.get('PYTHONPATH', 'NONE'), "
+                        "'PYTHONHOME': os.environ.get('PYTHONHOME', 'NONE'), "
+                        "'PYTHONEXECUTABLE': os.environ.get("
+                        "'PYTHONEXECUTABLE', 'NONE'), "
+                        "'PYTHONSTARTUP': os.environ.get('PYTHONSTARTUP', 'NONE'), "
+                        "'NODE_OPTIONS': os.environ.get('NODE_OPTIONS', 'NONE'), "
+                        "'PERL5OPT': os.environ.get('PERL5OPT', 'NONE'), "
+                        "'PERL5LIB': os.environ.get('PERL5LIB', 'NONE'), "
+                        "'RUBYOPT': os.environ.get('RUBYOPT', 'NONE'), "
+                        "'RUBYLIB': os.environ.get('RUBYLIB', 'NONE'), "
+                        "'JAVA_TOOL_OPTIONS': os.environ.get("
+                        "'JAVA_TOOL_OPTIONS', 'NONE'), "
+                        "'_JAVA_OPTIONS': os.environ.get('_JAVA_OPTIONS', 'NONE'), "
+                        "'JAVA_OPTS': os.environ.get('JAVA_OPTS', 'NONE')}; "
+                        "print(json.dumps(data))"
+                    ),
+                ],
+                "env": blocked_vars,
+            },
+        )
+
+        assert result.success is True
+        assert result.data is not None
+        import json
+
+        values = json.loads(result.data["stdout"].strip())
+        # PATH should be default safe path, not malicious override
+        assert values["PATH"] == "/usr/local/bin:/usr/bin:/bin"
+        # All other blocked vars should be NONE
+        assert values["LD_PRELOAD"] == "NONE"
+        assert values["LD_LIBRARY_PATH"] == "NONE"
+        assert values["LD_AUDIT"] == "NONE"
+        assert values["LD_DEBUG"] == "NONE"
+        # macOS library injection
+        assert values["DYLD_INSERT_LIBRARIES"] == "NONE"
+        assert values["DYLD_LIBRARY_PATH"] == "NONE"
+        assert values["DYLD_FRAMEWORK_PATH"] == "NONE"
+        # Shell code injection
+        assert values["BASH_ENV"] == "NONE"
+        assert values["ENV"] == "NONE"
+        assert values["ENVIRONMENT"] == "NONE"
+        # Python code injection
+        assert values["PYTHONPATH"] == "NONE"
+        assert values["PYTHONHOME"] == "NONE"
+        assert values["PYTHONEXECUTABLE"] == "NONE"
+        assert values["PYTHONSTARTUP"] == "NONE"
+        # Other interpreter injection
+        assert values["NODE_OPTIONS"] == "NONE"
+        assert values["PERL5OPT"] == "NONE"
+        assert values["PERL5LIB"] == "NONE"
+        assert values["RUBYOPT"] == "NONE"
+        assert values["RUBYLIB"] == "NONE"
+        assert values["JAVA_TOOL_OPTIONS"] == "NONE"
+        assert values["_JAVA_OPTIONS"] == "NONE"
+        assert values["JAVA_OPTS"] == "NONE"
+
+    async def test_blocked_override_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Blocked override attempts should emit a warning for security auditing."""
+        import logging
+
+        module = ShellModule(working_directory=tmp_path)
+
+        with caplog.at_level(logging.WARNING):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": ["-c", "print('ok')"],
+                    "env": {"LD_PRELOAD": "/evil/lib.so"},
+                },
+            )
+
+        assert result.success is True
+        # Should have logged a warning about the blocked override
+        assert any(
+            "Blocked dangerous env var override attempt: LD_PRELOAD" in record.message
+            for record in caplog.records
+        )
