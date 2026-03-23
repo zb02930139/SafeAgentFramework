@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from safe_agent.modules.shell import ShellModule
 
 
@@ -509,6 +511,10 @@ class TestShellModuleEnvSecurity:
             "LD_LIBRARY_PATH": "/evil/lib",
             "LD_AUDIT": "/evil/audit.so",
             "LD_DEBUG": "all",
+            # macOS library injection
+            "DYLD_INSERT_LIBRARIES": "/evil/dylib.so",
+            "DYLD_LIBRARY_PATH": "/evil/dylib",
+            "DYLD_FRAMEWORK_PATH": "/evil/framework",
             # Shell code injection
             "BASH_ENV": "/evil/bash.sh",
             "ENV": "/evil/env.sh",
@@ -518,11 +524,18 @@ class TestShellModuleEnvSecurity:
             "PYTHONHOME": "/evil/pyhome",
             "PYTHONEXECUTABLE": "/evil/python",
             "PYTHONSTARTUP": "/evil/startup.py",
-            # Other interpreter injection
+            # Node.js code injection
             "NODE_OPTIONS": "--require=/evil/node.js",
+            # Perl code injection
             "PERL5OPT": "-I/evil/perl",
+            "PERL5LIB": "/evil/perl/lib",
+            # Ruby code injection
             "RUBYOPT": "-I/evil/ruby",
+            "RUBYLIB": "/evil/ruby/lib",
+            # Java options injection
             "JAVA_TOOL_OPTIONS": "-Devil=true",
+            "_JAVA_OPTIONS": "-Devil=true",
+            "JAVA_OPTS": "-Devil=true",
         }
 
         result = await module.execute(
@@ -540,17 +553,29 @@ class TestShellModuleEnvSecurity:
                         "'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH', 'NONE'), "
                         "'LD_AUDIT': os.environ.get('LD_AUDIT', 'NONE'), "
                         "'LD_DEBUG': os.environ.get('LD_DEBUG', 'NONE'), "
+                        "'DYLD_INSERT_LIBRARIES': os.environ.get("
+                        "'DYLD_INSERT_LIBRARIES', 'NONE'), "
+                        "'DYLD_LIBRARY_PATH': os.environ.get("
+                        "'DYLD_LIBRARY_PATH', 'NONE'), "
+                        "'DYLD_FRAMEWORK_PATH': os.environ.get("
+                        "'DYLD_FRAMEWORK_PATH', 'NONE'), "
                         "'BASH_ENV': os.environ.get('BASH_ENV', 'NONE'), "
                         "'ENV': os.environ.get('ENV', 'NONE'), "
+                        "'ENVIRONMENT': os.environ.get('ENVIRONMENT', 'NONE'), "
                         "'PYTHONPATH': os.environ.get('PYTHONPATH', 'NONE'), "
                         "'PYTHONHOME': os.environ.get('PYTHONHOME', 'NONE'), "
                         "'PYTHONEXECUTABLE': os.environ.get("
                         "'PYTHONEXECUTABLE', 'NONE'), "
+                        "'PYTHONSTARTUP': os.environ.get('PYTHONSTARTUP', 'NONE'), "
                         "'NODE_OPTIONS': os.environ.get('NODE_OPTIONS', 'NONE'), "
                         "'PERL5OPT': os.environ.get('PERL5OPT', 'NONE'), "
+                        "'PERL5LIB': os.environ.get('PERL5LIB', 'NONE'), "
                         "'RUBYOPT': os.environ.get('RUBYOPT', 'NONE'), "
+                        "'RUBYLIB': os.environ.get('RUBYLIB', 'NONE'), "
                         "'JAVA_TOOL_OPTIONS': os.environ.get("
-                        "'JAVA_TOOL_OPTIONS', 'NONE')}; "
+                        "'JAVA_TOOL_OPTIONS', 'NONE'), "
+                        "'_JAVA_OPTIONS': os.environ.get('_JAVA_OPTIONS', 'NONE'), "
+                        "'JAVA_OPTS': os.environ.get('JAVA_OPTS', 'NONE')}; "
                         "print(json.dumps(data))"
                     ),
                 ],
@@ -570,12 +595,50 @@ class TestShellModuleEnvSecurity:
         assert values["LD_LIBRARY_PATH"] == "NONE"
         assert values["LD_AUDIT"] == "NONE"
         assert values["LD_DEBUG"] == "NONE"
+        # macOS library injection
+        assert values["DYLD_INSERT_LIBRARIES"] == "NONE"
+        assert values["DYLD_LIBRARY_PATH"] == "NONE"
+        assert values["DYLD_FRAMEWORK_PATH"] == "NONE"
+        # Shell code injection
         assert values["BASH_ENV"] == "NONE"
         assert values["ENV"] == "NONE"
+        assert values["ENVIRONMENT"] == "NONE"
+        # Python code injection
         assert values["PYTHONPATH"] == "NONE"
         assert values["PYTHONHOME"] == "NONE"
         assert values["PYTHONEXECUTABLE"] == "NONE"
+        assert values["PYTHONSTARTUP"] == "NONE"
+        # Other interpreter injection
         assert values["NODE_OPTIONS"] == "NONE"
         assert values["PERL5OPT"] == "NONE"
+        assert values["PERL5LIB"] == "NONE"
         assert values["RUBYOPT"] == "NONE"
+        assert values["RUBYLIB"] == "NONE"
         assert values["JAVA_TOOL_OPTIONS"] == "NONE"
+        assert values["_JAVA_OPTIONS"] == "NONE"
+        assert values["JAVA_OPTS"] == "NONE"
+
+    async def test_blocked_override_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Blocked override attempts should emit a warning for security auditing."""
+        import logging
+
+        module = ShellModule(working_directory=tmp_path)
+
+        with caplog.at_level(logging.WARNING):
+            result = await module.execute(
+                "shell:execute",
+                {
+                    "command": sys.executable,
+                    "args": ["-c", "print('ok')"],
+                    "env": {"LD_PRELOAD": "/evil/lib.so"},
+                },
+            )
+
+        assert result.success is True
+        # Should have logged a warning about the blocked override
+        assert any(
+            "Blocked dangerous env var override attempt: LD_PRELOAD" in record.message
+            for record in caplog.records
+        )
