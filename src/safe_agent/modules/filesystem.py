@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ from safe_agent.modules.base import (
     ToolDescriptor,
     ToolResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FilesystemModule(BaseModule):
@@ -36,6 +39,12 @@ class FilesystemModule(BaseModule):
         if max_write_size <= 0:
             raise ValueError("max_write_size must be positive")
         self.root = (root or Path.cwd()).resolve()
+        if root is None:
+            logger.warning(
+                "FilesystemModule instantiated without explicit root; "
+                "defaulting to cwd: %s. This may grant broader access than intended.",
+                self.root,
+            )
         self.max_write_size = max_write_size
 
     def describe(self) -> ModuleDescriptor:
