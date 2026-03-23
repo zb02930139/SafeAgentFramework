@@ -65,6 +65,28 @@ class TestAuditEntry:
         entry = _make_entry(matched_statements=[None, "SomePolicy"])
         assert entry.matched_statements == [None, "SomePolicy"]
 
+    def test_tool_call_id_defaults_to_none(self) -> None:
+        """tool_call_id should default to None when not provided."""
+        entry = _make_entry()
+        assert entry.tool_call_id is None
+
+    def test_tool_call_id_stored_when_provided(self) -> None:
+        """tool_call_id should be stored when explicitly provided."""
+        entry = _make_entry(tool_call_id="call-abc123")
+        assert entry.tool_call_id == "call-abc123"
+
+    def test_tool_call_id_in_json(self) -> None:
+        """tool_call_id should appear in JSON output when set."""
+        entry = _make_entry(tool_call_id="call-xyz")
+        parsed = json.loads(entry.model_dump_json())
+        assert parsed["tool_call_id"] == "call-xyz"
+
+    def test_tool_call_id_null_in_json_when_none(self) -> None:
+        """tool_call_id should be null in JSON when not set."""
+        entry = _make_entry()
+        parsed = json.loads(entry.model_dump_json())
+        assert parsed["tool_call_id"] is None
+
 
 class TestAuditLogger:
     """Tests for AuditLogger."""
