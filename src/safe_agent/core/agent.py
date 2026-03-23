@@ -27,7 +27,17 @@ class Agent:
         audit_log_path: Path | None = None,
         max_turns: int = 10,
     ) -> None:
-        """Initialise the complete SafeAgent runtime stack."""
+        """Initialise the complete SafeAgent runtime stack.
+
+        Args:
+            policy_dir: Directory containing policy files to load.
+            llm_client: LLM client for generating responses.
+            modules: List of modules to register. If None, auto-discovers built-in
+                modules (filesystem, shell) via entry points. Discovered modules
+                use default configs (e.g., FilesystemModule roots at cwd()).
+            audit_log_path: Path for audit log file. Defaults to "audit.jsonl".
+            max_turns: Maximum turns per session before eviction.
+        """
         store = PolicyStore()
         store.load(policy_dir)
         store.freeze()
