@@ -454,20 +454,3 @@ class TestModuleRegistry:
         assert registry.get_tool("shared:Manual") is not None
         assert registry.get_tool("shared:Discovered") is None
         assert registry._discovered is False
-
-    # ---------------------------------------------------------------------------
-    # dispatch() tests
-    # ---------------------------------------------------------------------------
-
-    async def test_dispatch_executes_registered_tool(self) -> None:
-        """dispatch() should call execute() on the correct module."""
-        registry = ModuleRegistry()
-        registry.register(_make_module("d", ["d:Run"]))
-        result = await registry.dispatch("d:Run", {})
-        assert result.success is True
-
-    async def test_dispatch_raises_for_unknown_tool(self) -> None:
-        """dispatch() should raise ValueError for an unregistered tool name."""
-        registry = ModuleRegistry()
-        with pytest.raises(ValueError, match="not registered"):
-            await registry.dispatch("ghost:Op", {})

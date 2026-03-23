@@ -1,16 +1,15 @@
-"""Module registry for discovering and dispatching SafeAgent modules."""
+"""Module registry for discovering and managing SafeAgent modules."""
 
 import logging
 from importlib.metadata import entry_points
-from typing import Any
 
-from safe_agent.modules.base import BaseModule, ToolDescriptor, ToolResult
+from safe_agent.modules.base import BaseModule, ToolDescriptor
 
 logger = logging.getLogger(__name__)
 
 
 class ModuleRegistry:
-    """Registry for SafeAgent modules supporting discovery and dispatch.
+    """Registry for SafeAgent modules supporting discovery and lookup.
 
     Modules can be registered manually via ``register()`` or discovered
     automatically from installed packages via ``discover()``.
@@ -36,11 +35,16 @@ class ModuleRegistry:
     structural sanity check, not a security boundary. Do not use ``discover()``
     in environments where third-party packages cannot be fully trusted.
 
+    Security note: ``dispatch()`` has been removed. Tool execution must go
+    through ``ToolDispatcher``, which enforces policy evaluation and audit
+    logging. Directly calling ``module.execute()`` bypasses these safeguards
+    and is a security violation.
+
     Example::
 
         registry = ModuleRegistry()
         registry.register(my_module)
-        result = registry.dispatch("my_namespace:my_tool", params={})
+        tool = registry.get_tool("my_namespace:my_tool")
     """
 
     def __init__(self) -> None:
@@ -246,30 +250,3 @@ class ModuleRegistry:
             A list of ``ToolDescriptor`` objects across all registered modules.
         """
         return [td for _, td in self._tool_map.values()]
-
-    async def dispatch(
-        self,
-        tool_name: str,
-        params: dict[str, Any],
-    ) -> ToolResult[Any]:
-        """Look up and execute a tool by name, validating it exists first.
-
-        This is the preferred dispatch path. It ensures tool lookup goes
-        through the registry (the enforced choke point) rather than callers
-        invoking ``module.execute()`` directly.
-
-        Args:
-            tool_name: The fully-qualified tool name (e.g. ``"fs:ReadFile"``).
-            params: Input parameters for the tool.
-
-        Returns:
-            A ``ToolResult`` from the module's ``execute()`` method.
-
-        Raises:
-            ValueError: If ``tool_name`` is not registered in this registry.
-        """
-        result = self.get_tool(tool_name)
-        if result is None:
-            raise ValueError(f"Tool '{tool_name}' is not registered in this registry.")
-        module, _descriptor = result
-        return await module.execute(tool_name, params)
