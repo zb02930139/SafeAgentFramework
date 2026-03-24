@@ -302,6 +302,11 @@ class FilesystemModule(BaseModule):
 
         Results are capped at max_list_entries to prevent resource exhaustion.
         If truncated, the result includes truncated=true and a warning.
+
+        Note: Results are sorted after truncation. When truncated, the returned
+        subset is non-deterministic (depends on filesystem iteration order).
+        This is acceptable for the resource-exhaustion use case; callers needing
+        deterministic results should use a more specific pattern or pagination.
         """
         path = self._resolve_path(str(params["path"]))
         recursive = bool(params.get("recursive", False))

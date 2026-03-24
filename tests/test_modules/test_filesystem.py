@@ -423,6 +423,21 @@ class TestFilesystemModule:
         assert len(result.data["entries"]) == 5
         assert "truncated" not in result.data
 
+    async def test_list_directory_accepts_exact_limit(self, tmp_path: Path) -> None:
+        """list_directory should accept exactly max_list_entries entries."""
+        limit = 5
+        module = FilesystemModule(tmp_path, max_list_entries=limit)
+
+        # Create exactly the limit number of entries
+        for i in range(limit):
+            (tmp_path / f"file{i}.txt").write_text(f"content{i}", encoding="utf-8")
+
+        result = await module.execute("filesystem:list_directory", {"path": "."})
+
+        assert result.success is True
+        assert len(result.data["entries"]) == limit
+        assert "truncated" not in result.data
+
     async def test_list_directory_truncates_recursive(self, tmp_path: Path) -> None:
         """list_directory should truncate recursive listings too."""
         small_limit = 3
