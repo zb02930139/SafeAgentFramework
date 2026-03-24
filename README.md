@@ -3,10 +3,10 @@
 [![CI](https://github.com/zbrooks442/SafeAgentFramework/actions/workflows/ci.yml/badge.svg)](https://github.com/zbrooks442/SafeAgentFramework/actions/workflows/ci.yml)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](https://github.com/zbrooks442/SafeAgentFramework)
+[![Coverage](https://img.shields.io/badge/coverage-85%25+-green.svg)](https://github.com/zbrooks442/SafeAgentFramework/actions)
 
 A pluggable, security-first agent framework. Build AI agents that interact with
-system resources (filesystem, shell, git, etc.) through modules gated by an
+system resources (filesystem, shell, etc.) through modules gated by an
 AWS IAM-style policy engine. The agent can attempt any tool call — your policies
 decide in code whether to execute it.
 
@@ -23,19 +23,18 @@ decide in code whether to execute it.
 - **Gateway & Agent Runtime** — High-level API for chat-driven agent workflows
 - **Audit Logging** — Structured JSONL logs for every decision and action
 
-**Stats:** 18 source files across 3 packages, 185+ tests, 85%+ coverage.
+**Stats:** 18 source files across 3 packages, 310 tests, 85%+ coverage.
 
 ## Installation
 
 ```bash
-pip install safe-agent
-```
-
-For development:
-
-```bash
+# Clone and install locally
+git clone https://github.com/zbrooks442/SafeAgentFramework.git
+cd SafeAgentFramework
 pip install -e ".[dev]"
 ```
+
+For development setup, see the Development section below.
 
 ## Quick Start
 
@@ -49,7 +48,7 @@ from safe_agent.modules.filesystem import FilesystemModule
 agent = Agent(
     policy_dir=Path("./policies"),
     llm_client=LLMClient(api_key="your-api-key"),
-    modules=[FilesystemModule(allowed_roots=[Path("/projects")])]
+    modules=[FilesystemModule(root=Path("/projects"))]
 )
 
 # Chat with the agent (async)
@@ -65,7 +64,7 @@ response, session_id = await agent.chat("Read the README.md", session_id)
 Three concepts:
 
 1. **Modules** — pluggable Python classes that provide tools (filesystem, shell,
-   git, etc.). Each module describes its tools and what IAM action/resource they
+   etc.). Each module describes its tools and what IAM action/resource they
    map to.
 2. **Policies** — JSON documents that allow or deny actions on resources.
    Deny-by-default. Explicit deny always wins. Same evaluation logic as AWS IAM.
