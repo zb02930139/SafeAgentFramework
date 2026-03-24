@@ -38,26 +38,50 @@ For development setup, see the Development section below.
 
 ## Quick Start
 
+SafeAgent requires an `LLMClient` — any async class with a `chat` method that
+accepts messages and tool definitions and returns an `LLMResponse`. Here's a
+minimal example using a hypothetical OpenAI adapter:
+
 ```python
+import asyncio
 from pathlib import Path
+
 from safe_agent.core.agent import Agent
-from safe_agent.core.llm import LLMClient
+from safe_agent.core.llm import LLMClient, LLMResponse, ToolCall
 from safe_agent.modules.filesystem import FilesystemModule
 
-# Create an agent with policies and modules
-agent = Agent(
-    policy_dir=Path("./policies"),
-    llm_client=LLMClient(api_key="your-api-key"),
-    modules=[FilesystemModule(root=Path("/projects"))]
-)
 
-# Chat with the agent (async)
-response, session_id = await agent.chat("List the files in /projects/my-app")
-print(response)
+class MyLLMClient:
+    """Minimal LLMClient implementation (satisfies the Protocol)."""
 
-# Continue the conversation
-response, session_id = await agent.chat("Read the README.md", session_id)
+    def __init__(self, api_key: str) -> None:
+        self.api_key = api_key
+
+    async def chat(self, messages: list[dict], tools: list[dict]) -> LLMResponse:
+        # Replace with your preferred LLM provider (OpenAI, Anthropic, etc.)
+        ...
+
+
+async def main() -> None:
+    agent = Agent(
+        policy_dir=Path("./policies"),
+        llm_client=MyLLMClient(api_key="your-api-key"),
+        modules=[FilesystemModule(root=Path("/projects"))],
+    )
+
+    # Chat with the agent
+    response, session_id = await agent.chat("List the files in /projects/my-app")
+    print(response)
+
+    # Continue the conversation
+    response, session_id = await agent.chat("Read the README.md", session_id)
+
+
+asyncio.run(main())
 ```
+
+The `LLMClient` is a `typing.Protocol` — any class with a matching `chat`
+method works without inheriting from it.
 
 ## How It Works
 

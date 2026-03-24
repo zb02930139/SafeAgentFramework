@@ -49,7 +49,7 @@ filesystem = "safe_agent.modules.filesystem:FilesystemModule"
 shell = "safe_agent.modules.shell:ShellModule"
 
 [project.urls]
-Repository = "https://github.com/zbrooks422/safeagentframework"
+Repository = "https://github.com/zbrooks442/SafeAgentFramework"
 
 [tool.setuptools.packages.find]
 where = ["src"]
