@@ -105,13 +105,6 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 # ---------------------------------------------------------------------------
-# Black (configured for compatibility — ruff format is the primary formatter)
-# ---------------------------------------------------------------------------
-[tool.black]
-line-length = 88
-target-version = ["py313"]
-
-# ---------------------------------------------------------------------------
 # Bandit (standalone security scanner — defense-in-depth alongside ruff S)
 # ---------------------------------------------------------------------------
 [tool.bandit]
