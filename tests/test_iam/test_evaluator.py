@@ -524,6 +524,199 @@ class TestConditions:
         )
 
 
+class TestBoolCondition:
+    """Verify Bool condition operator behavior."""
+
+    def test_bool_true_satisfied(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"filesystem:IsDirectory": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        assert (
+            ev.evaluate(
+                make_request("agent:Read", "*", **{"filesystem:IsDirectory": "true"})
+            ).decision
+            == Decision.ALLOWED
+        )
+
+    def test_bool_false_satisfied(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"filesystem:IsDirectory": "false"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        assert (
+            ev.evaluate(
+                make_request("agent:Read", "*", **{"filesystem:IsDirectory": "false"})
+            ).decision
+            == Decision.ALLOWED
+        )
+
+    def test_bool_case_insensitive(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "True"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Context value with different case
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="TRUE")).decision
+            == Decision.ALLOWED
+        )
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="true")).decision
+            == Decision.ALLOWED
+        )
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="True")).decision
+            == Decision.ALLOWED
+        )
+
+    def test_bool_python_bool_values(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": True}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Python bool values should work
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag=True)).decision
+            == Decision.ALLOWED
+        )
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag=False)).decision
+            == Decision.DENIED_IMPLICIT
+        )
+
+    def test_bool_not_satisfied(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="false")).decision
+            == Decision.DENIED_IMPLICIT
+        )
+
+    def test_bool_missing_key(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # No flag in context
+        assert (
+            ev.evaluate(make_request("agent:Run", "*")).decision
+            == Decision.DENIED_IMPLICIT
+        )
+
+    def test_bool_multiple_values_ored(self):
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": ["true", "false"]}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Either value should match
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="true")).decision
+            == Decision.ALLOWED
+        )
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", flag="false")).decision
+            == Decision.ALLOWED
+        )
+
+    def test_bool_non_boolean_value(self):
+        """Bool operator compares stringified values, so non-bools work too."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"status": "yes"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", status="yes")).decision
+            == Decision.ALLOWED
+        )
+        assert (
+            ev.evaluate(make_request("agent:Run", "*", status="no")).decision
+            == Decision.DENIED_IMPLICIT
+        )
+
+
 class TestMatchedStatementsInResult:
     """Verify the matched_statements field in AuthorizationResult."""
 

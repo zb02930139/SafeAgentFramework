@@ -33,6 +33,10 @@ _STRING_OPS = {
     "StringNotLike",
 }
 
+_BOOL_OPS = {
+    "Bool",
+}
+
 
 def _match_string_op(operator: str, ctx_val: str, condition_val: str) -> bool:
     """Evaluate a single string condition comparison.
@@ -88,6 +92,23 @@ def _match_numeric_op(operator: str, ctx_val: float, condition_val: float) -> bo
     raise ValueError(f"Unknown numeric operator: {operator!r}")  # pragma: no cover
 
 
+def _match_bool_op(ctx_val: Any, condition_val: Any) -> bool:
+    """Evaluate a boolean condition comparison.
+
+    Both values are converted to lowercase strings and compared for equality.
+    This supports common truthy/falsy representations like "true", "True",
+    "false", "False", as well as boolean ``True``/``False`` values.
+
+    Args:
+        ctx_val: The actual value from the request context.
+        condition_val: The expected boolean value from the condition block.
+
+    Returns:
+        ``True`` if both values normalize to the same boolean string.
+    """
+    return str(ctx_val).lower() == str(condition_val).lower()
+
+
 def _evaluate_condition_block(
     condition: dict[str, Any],
     context: dict[str, Any],
@@ -136,6 +157,11 @@ def _evaluate_condition_block(
                     except (TypeError, ValueError):
                         return False
                     if _match_numeric_op(operator, num_ctx, num_v):
+                        matched_any = True
+                        break
+            elif operator in _BOOL_OPS:
+                for v in values_list:
+                    if _match_bool_op(ctx_val, v):
                         matched_any = True
                         break
             else:
