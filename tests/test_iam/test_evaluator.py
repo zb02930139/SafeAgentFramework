@@ -731,3 +731,162 @@ class TestMatchedStatementsInResult:
         result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash"))
         assert result.decision == Decision.DENIED_IMPLICIT
         assert result.matched_statements == []
+
+
+class TestInfNanGuard:
+    """Verify that inf and nan values are rejected in numeric conditions."""
+
+    def test_context_value_inf_denied(self):
+        """Inf in context should deny, preventing NumericLessThan bypass."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericLessThan": {"count": 100}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # "inf" would bypass NumericLessThan (anything < inf is True)
+        result = ev.evaluate(make_request("agent:Run", "*", count="inf"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_context_value_infinity_denied(self):
+        """'infinity' string should also be denied."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericLessThan": {"count": 100}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count="infinity"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_context_value_nan_denied(self):
+        """Nan in context should deny (nan comparisons are always False)."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": 42}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count="nan"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_condition_value_inf_denied(self):
+        """Inf in condition value should also deny."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericGreaterThan": {"score": "inf"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # No finite number is > inf, but we should reject before comparison
+        result = ev.evaluate(make_request("agent:Run", "*", score=1000))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_condition_value_nan_denied(self):
+        """Nan in condition value should deny."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": "nan"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count=42))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_negative_inf_denied(self):
+        """Negative infinity should also be rejected."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericGreaterThan": {"count": -1000}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count="-inf"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_valid_float_still_works(self):
+        """Normal float values should still work after inf/nan guard."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericLessThan": {"count": 100}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # String representation of a valid float
+        result = ev.evaluate(make_request("agent:Run", "*", count="50.5"))
+        assert result.decision == Decision.ALLOWED
+
+    def test_valid_int_still_works(self):
+        """Integer values should still work."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": 42}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count=42))
+        assert result.decision == Decision.ALLOWED

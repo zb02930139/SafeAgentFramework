@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import math
 from typing import Any
 
 from safe_agent.iam.models import (
@@ -12,6 +13,26 @@ from safe_agent.iam.models import (
     Statement,
 )
 from safe_agent.iam.policy import PolicyStore
+
+
+def _safe_float(value: Any) -> float | None:
+    """Safely convert a value to float, rejecting inf and nan.
+
+    Args:
+        value: The value to convert (typically a string or number).
+
+    Returns:
+        The float value if valid and finite, or ``None`` if conversion fails
+        or the result is inf/nan.
+    """
+    try:
+        f = float(value)
+        if math.isinf(f) or math.isnan(f):
+            return None
+        return f
+    except (ValueError, TypeError):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Condition operator helpers
@@ -147,14 +168,12 @@ def _evaluate_condition_block(
                         matched_any = True
                         break
             elif operator in _NUMERIC_OPS:
-                try:
-                    num_ctx = float(ctx_val)
-                except (TypeError, ValueError):
+                num_ctx = _safe_float(ctx_val)
+                if num_ctx is None:
                     return False
                 for v in values_list:
-                    try:
-                        num_v = float(v)
-                    except (TypeError, ValueError):
+                    num_v = _safe_float(v)
+                    if num_v is None:
                         return False
                     if _match_numeric_op(operator, num_ctx, num_v):
                         matched_any = True
