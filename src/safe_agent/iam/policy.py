@@ -39,6 +39,10 @@ class PolicyStore:
         Files whose ``Version`` field is not ``"2025-01"`` are rejected
         with a :class:`ValueError`.
 
+        This method uses an atomic all-or-nothing pattern: all policies are
+        validated first, and only committed to the store if all succeed.
+        If any file fails validation, the store remains unchanged.
+
         Args:
             directory: Path to a directory containing ``.json`` policy files.
 
@@ -52,6 +56,8 @@ class PolicyStore:
             raise RuntimeError(
                 "PolicyStore is frozen; no further policies may be added."
             )
+        # Stage all policies first; only commit if all succeed
+        staged: list[Policy] = []
         for json_file in sorted(directory.glob("*.json")):
             raw = json_file.read_text(encoding="utf-8")
             data = json.loads(raw)
@@ -67,7 +73,9 @@ class PolicyStore:
                 raise ValueError(
                     f"{json_file.name}: policy validation failed: {exc}"
                 ) from exc
-            self._policies.append(policy)
+            staged.append(policy)
+        # All validated successfully — commit atomically
+        self._policies.extend(staged)
 
     def add_policy(self, policy: Policy) -> None:
         """Add a single policy to the store.

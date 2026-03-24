@@ -98,6 +98,58 @@ class TestPolicyStoreLoad:
         with pytest.raises(RuntimeError, match="frozen"):
             store.load(tmp_path)
 
+    def test_partial_load_failure_leaves_store_unchanged(self, tmp_path):
+        """If a file fails validation, store should remain empty."""
+        # First file is valid
+        write_json(tmp_path, "a.json", VALID_POLICY)
+        # Second file is valid
+        write_json(
+            tmp_path,
+            "b.json",
+            {
+                "Version": "2025-01",
+                "Statement": [{"Effect": "Deny", "Action": ["*"], "Resource": ["*"]}],
+            },
+        )
+        # Third file has invalid version
+        write_json(tmp_path, "c.json", {**VALID_POLICY, "Version": "1999-01"})
+        store = PolicyStore()
+        with pytest.raises(ValueError, match="unrecognised policy version"):
+            store.load(tmp_path)
+        # Store should still be empty — no partial state
+        assert store.get_all_statements() == []
+
+    def test_successful_load_after_failed_attempt(self, tmp_path):
+        """After a failed load, a corrected load should work correctly."""
+        # Write a bad policy
+        write_json(tmp_path, "bad.json", {**VALID_POLICY, "Version": "1999-01"})
+        store = PolicyStore()
+        with pytest.raises(ValueError):
+            store.load(tmp_path)
+        assert store.get_all_statements() == []
+
+        # Remove bad file, write valid one
+        (tmp_path / "bad.json").unlink()
+        write_json(tmp_path, "good.json", VALID_POLICY)
+        store.load(tmp_path)
+        assert len(store.get_all_statements()) == 1
+
+    def test_partial_load_with_existing_policies_preserves_them(self, tmp_path):
+        """If load fails, existing policies added via add_policy should remain."""
+        store = PolicyStore()
+        # Add a policy manually first
+        existing = Policy.model_validate(VALID_POLICY)
+        store.add_policy(existing)
+        assert len(store.get_all_statements()) == 1
+
+        # Try to load a bad policy file
+        write_json(tmp_path, "bad.json", {**VALID_POLICY, "Version": "1999-01"})
+        with pytest.raises(ValueError):
+            store.load(tmp_path)
+
+        # Existing policy should still be there
+        assert len(store.get_all_statements()) == 1
+
 
 class TestPolicyStoreAddPolicy:
     """Tests for PolicyStore.add_policy()."""
