@@ -139,6 +139,9 @@ class SessionManager:
     def close(self, session_id: str) -> None:
         """Remove a session from active tracking if present.
 
+        This triggers the eviction callback (if set) to release any associated
+        resources, such as EventLoop session locks.
+
         Note: This triggers lazy cleanup of expired sessions as a side effect.
 
         Args:
@@ -146,7 +149,7 @@ class SessionManager:
         """
         with self._lock:
             self._cleanup_expired()
-            self._sessions.pop(session_id, None)
+            self._evict_session(session_id, reason="close")
 
     def list_active(self) -> list[str]:
         """Return active session IDs in LRU order (oldest first).

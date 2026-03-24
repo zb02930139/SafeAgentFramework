@@ -298,6 +298,17 @@ class TestEvictionCallback:
         # Session1 should still be evicted despite callback error
         assert manager.get(session1.id) is None
 
+    def test_eviction_callback_on_close(self) -> None:
+        """close() should trigger the eviction callback to release resources."""
+        evicted = []
+        manager = SessionManager()
+        manager.set_eviction_callback(lambda s: evicted.append(s.id))
+
+        session = manager.create()
+        manager.close(session.id)
+
+        assert session.id in evicted
+
 
 class TestThreadSafety:
     """Tests for thread-safe operations."""
