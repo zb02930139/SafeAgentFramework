@@ -68,7 +68,7 @@ class ModuleDescriptor(BaseModel):
     tools: list[ToolDescriptor] = Field(default_factory=list)
 
 
-class ToolResult[ToolDataT = Any](BaseModel):
+class ToolResult[ToolDataT](BaseModel):
     """Represents the result of a tool execution.
 
     Attributes:

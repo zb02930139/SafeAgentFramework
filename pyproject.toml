@@ -59,7 +59,7 @@ where = ["src"]
 # Ruff (linting + formatting — replaces flake8, isort, black, and bandit's S)
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 line-length = 88
 exclude = [
     ".git",
