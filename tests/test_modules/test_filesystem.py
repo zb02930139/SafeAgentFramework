@@ -297,6 +297,53 @@ class TestFilesystemModule:
         assert result.success is True
         assert result.data == {"path": "exact_limit.txt", "bytes_written": 100}
 
+    async def test_read_file_rejects_over_limit(self, tmp_path: Path) -> None:
+        """read_file should reject files exceeding max_read_size."""
+        small_limit = 100
+        module = FilesystemModule(tmp_path, max_read_size=small_limit)
+        large_content = "x" * 200
+        (tmp_path / "large.txt").write_text(large_content, encoding="utf-8")
+
+        result = await module.execute("filesystem:read_file", {"path": "large.txt"})
+
+        assert result.success is False
+        assert "exceeds maximum" in result.error
+        assert f"{small_limit} bytes" in result.error
+
+    async def test_read_file_accepts_under_limit(self, tmp_path: Path) -> None:
+        """read_file should accept files under max_read_size."""
+        limit = 1000
+        module = FilesystemModule(tmp_path, max_read_size=limit)
+        content = "x" * 500
+        (tmp_path / "within_limit.txt").write_text(content, encoding="utf-8")
+
+        result = await module.execute(
+            "filesystem:read_file", {"path": "within_limit.txt"}
+        )
+
+        assert result.success is True
+        assert result.data == {
+            "path": "within_limit.txt",
+            "content": content,
+        }
+
+    async def test_read_file_accepts_exact_limit(self, tmp_path: Path) -> None:
+        """read_file should accept files exactly at max_read_size boundary."""
+        limit = 100
+        module = FilesystemModule(tmp_path, max_read_size=limit)
+        content = "x" * 100  # Exactly at limit
+        (tmp_path / "exact_limit.txt").write_text(content, encoding="utf-8")
+
+        result = await module.execute(
+            "filesystem:read_file", {"path": "exact_limit.txt"}
+        )
+
+        assert result.success is True
+        assert result.data == {
+            "path": "exact_limit.txt",
+            "content": content,
+        }
+
     def test_init_rejects_zero_or_negative_max_write_size(self, tmp_path: Path) -> None:
         """__init__ should reject zero or negative max_write_size values."""
         with pytest.raises(ValueError, match="max_write_size must be positive"):
@@ -304,6 +351,14 @@ class TestFilesystemModule:
 
         with pytest.raises(ValueError, match="max_write_size must be positive"):
             FilesystemModule(tmp_path, max_write_size=-1)
+
+    def test_init_rejects_zero_or_negative_max_read_size(self, tmp_path: Path) -> None:
+        """__init__ should reject zero or negative max_read_size values."""
+        with pytest.raises(ValueError, match="max_read_size must be positive"):
+            FilesystemModule(tmp_path, max_read_size=0)
+
+        with pytest.raises(ValueError, match="max_read_size must be positive"):
+            FilesystemModule(tmp_path, max_read_size=-1)
 
     def test_init_defaults_root_to_cwd(self) -> None:
         """__init__ should default root to Path.cwd() when not provided."""
