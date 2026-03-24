@@ -59,7 +59,7 @@ where = ["src"]
 # Ruff (linting + formatting — replaces flake8, isort, black, and bandit's S)
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 88
 exclude = [
     ".git",
@@ -116,7 +116,7 @@ skips = []
 # mypy
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

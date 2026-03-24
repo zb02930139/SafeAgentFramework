@@ -76,7 +76,7 @@ pytest
 
 ## Development
 
-**Requires:** Python 3.12+
+**Requires:** Python 3.13+
 
 All tooling is configured in `pyproject.toml`:
 
