@@ -98,6 +98,8 @@ class ShellModule(BaseModule):
         self.working_directory = (
             working_directory.resolve() if working_directory is not None else None
         )
+        if max_timeout <= 0:
+            raise ValueError("max_timeout must be > 0")
         self.default_timeout = default_timeout
         self.max_timeout = max_timeout
         self.max_output_size = max_output_size
@@ -122,7 +124,7 @@ class ShellModule(BaseModule):
                                 "type": "array",
                                 "items": {"type": "string"},
                             },
-                            "timeout": {"type": "number", "minimum": 0},
+                            "timeout": {"type": "number", "exclusiveMinimum": 0},
                             "env": {
                                 "type": "object",
                                 "additionalProperties": {"type": "string"},

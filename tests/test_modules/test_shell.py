@@ -15,6 +15,16 @@ from safe_agent.modules.shell import ShellModule
 class TestShellModuleTimeoutCap:
     """Tests for max_timeout cap behavior (Issue #62)."""
 
+    def test_max_timeout_zero_raises_valueerror(self) -> None:
+        """max_timeout=0 should raise ValueError at construction."""
+        with pytest.raises(ValueError, match="max_timeout must be > 0"):
+            ShellModule(max_timeout=0)
+
+    def test_max_timeout_negative_raises_valueerror(self) -> None:
+        """max_timeout < 0 should raise ValueError at construction."""
+        with pytest.raises(ValueError, match="max_timeout must be > 0"):
+            ShellModule(max_timeout=-1)
+
     async def test_timeout_clamped_to_max_timeout(self, tmp_path: Path) -> None:
         """Per-request timeout exceeding max_timeout should be clamped."""
         module = ShellModule(working_directory=tmp_path, max_timeout=1.0)
