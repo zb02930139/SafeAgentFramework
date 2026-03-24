@@ -23,12 +23,14 @@ class FilesystemModule(BaseModule):
 
     DEFAULT_MAX_WRITE_SIZE = 10 * 1024 * 1024  # 10MB default
     DEFAULT_MAX_READ_SIZE = 10 * 1024 * 1024  # 10MB default
+    DEFAULT_MAX_LIST_ENTRIES = 1000  # Prevent resource exhaustion
 
     def __init__(
         self,
         root: Path | None = None,
         max_write_size: int = DEFAULT_MAX_WRITE_SIZE,
         max_read_size: int = DEFAULT_MAX_READ_SIZE,
+        max_list_entries: int = DEFAULT_MAX_LIST_ENTRIES,
     ) -> None:
         """Initialise the module with an allowed filesystem root.
 
@@ -37,14 +39,18 @@ class FilesystemModule(BaseModule):
                 working directory if not specified.
             max_write_size: Maximum bytes allowed per file write (default 10MB).
             max_read_size: Maximum bytes allowed per file read (default 10MB).
+            max_list_entries: Maximum entries returned by list_directory (default 1000).
 
         Raises:
-            ValueError: If max_write_size or max_read_size is zero or negative.
+            ValueError: If max_write_size, max_read_size, or max_list_entries
+                is zero or negative.
         """
         if max_write_size <= 0:
             raise ValueError("max_write_size must be positive")
         if max_read_size <= 0:
             raise ValueError("max_read_size must be positive")
+        if max_list_entries <= 0:
+            raise ValueError("max_list_entries must be positive")
         self.root = (root or Path.cwd()).resolve()
         if root is None:
             logger.warning(
@@ -54,6 +60,7 @@ class FilesystemModule(BaseModule):
             )
         self.max_write_size = max_write_size
         self.max_read_size = max_read_size
+        self.max_list_entries = max_list_entries
 
     def describe(self) -> ModuleDescriptor:
         """Return the filesystem module descriptor and tool definitions."""
@@ -291,7 +298,11 @@ class FilesystemModule(BaseModule):
         )
 
     async def _list_directory(self, params: dict[str, Any]) -> ToolResult:
-        """List entries in a directory, optionally recursively and by pattern."""
+        """List entries in a directory, optionally recursively and by pattern.
+
+        Results are capped at max_list_entries to prevent resource exhaustion.
+        If truncated, the result includes truncated=true and a warning.
+        """
         path = self._resolve_path(str(params["path"]))
         recursive = bool(params.get("recursive", False))
         pattern = str(params.get("pattern", "*"))
@@ -307,16 +318,37 @@ class FilesystemModule(BaseModule):
             )
 
         iterator = path.rglob(pattern) if recursive else path.glob(pattern)
-        entries: list[dict[str, str | bool]] = [
-            {
-                "path": str(entry.relative_to(self.root)),
-                "is_directory": entry.is_dir(),
-            }
-            for entry in iterator
-        ]
+        entries: list[dict[str, str | bool]] = []
+        truncated = False
+
+        for entry in iterator:
+            if len(entries) >= self.max_list_entries:
+                truncated = True
+                logger.warning(
+                    "list_directory truncated at %d entries for path=%s pattern=%s",
+                    self.max_list_entries,
+                    path,
+                    pattern,
+                )
+                break
+            entries.append(
+                {
+                    "path": str(entry.relative_to(self.root)),
+                    "is_directory": entry.is_dir(),
+                }
+            )
+
         entries.sort(key=lambda item: str(item["path"]))
 
-        return ToolResult(success=True, data={"entries": entries})
+        result_data: dict[str, Any] = {"entries": entries}
+        if truncated:
+            result_data["truncated"] = True
+            result_data["warning"] = (
+                f"Results truncated at {self.max_list_entries} entries. "
+                "Use a more specific pattern or non-recursive listing."
+            )
+
+        return ToolResult(success=True, data=result_data)
 
     async def _delete_file(self, params: dict[str, Any]) -> ToolResult:
         """Delete a file within the configured root."""

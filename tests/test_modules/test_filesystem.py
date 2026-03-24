@@ -373,3 +373,73 @@ class TestFilesystemModule:
         """__init__ should default root to Path.cwd() when None is passed."""
         module = FilesystemModule(root=None)
         assert module.root == Path.cwd().resolve()
+
+    def test_init_defaults_max_list_entries(self, tmp_path: Path) -> None:
+        """__init__ should default max_list_entries to 1000."""
+        module = FilesystemModule(tmp_path)
+        assert module.max_list_entries == 1000
+
+    def test_init_rejects_zero_or_negative_max_list_entries(
+        self, tmp_path: Path
+    ) -> None:
+        """__init__ should reject zero or negative max_list_entries values."""
+        with pytest.raises(ValueError, match="max_list_entries must be positive"):
+            FilesystemModule(tmp_path, max_list_entries=0)
+
+        with pytest.raises(ValueError, match="max_list_entries must be positive"):
+            FilesystemModule(tmp_path, max_list_entries=-1)
+
+    async def test_list_directory_truncates_at_max_entries(
+        self, tmp_path: Path
+    ) -> None:
+        """list_directory should truncate results at max_list_entries."""
+        small_limit = 5
+        module = FilesystemModule(tmp_path, max_list_entries=small_limit)
+
+        # Create more entries than the limit
+        for i in range(10):
+            (tmp_path / f"file{i}.txt").write_text(f"content{i}", encoding="utf-8")
+
+        result = await module.execute("filesystem:list_directory", {"path": "."})
+
+        assert result.success is True
+        assert len(result.data["entries"]) == small_limit
+        assert result.data.get("truncated") is True
+        assert "truncated" in result.data.get("warning", "")
+
+    async def test_list_directory_no_truncation_under_limit(
+        self, tmp_path: Path
+    ) -> None:
+        """list_directory should not truncate when entries are under limit."""
+        module = FilesystemModule(tmp_path, max_list_entries=100)
+
+        # Create fewer entries than the limit
+        for i in range(5):
+            (tmp_path / f"file{i}.txt").write_text(f"content{i}", encoding="utf-8")
+
+        result = await module.execute("filesystem:list_directory", {"path": "."})
+
+        assert result.success is True
+        assert len(result.data["entries"]) == 5
+        assert "truncated" not in result.data
+
+    async def test_list_directory_truncates_recursive(self, tmp_path: Path) -> None:
+        """list_directory should truncate recursive listings too."""
+        small_limit = 3
+        module = FilesystemModule(tmp_path, max_list_entries=small_limit)
+
+        # Create nested structure with more entries than limit
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        (tmp_path / "a" / "1.txt").write_text("a1", encoding="utf-8")
+        (tmp_path / "a" / "2.txt").write_text("a2", encoding="utf-8")
+        (tmp_path / "b" / "3.txt").write_text("b3", encoding="utf-8")
+        (tmp_path / "b" / "4.txt").write_text("b4", encoding="utf-8")
+
+        result = await module.execute(
+            "filesystem:list_directory", {"path": ".", "recursive": True}
+        )
+
+        assert result.success is True
+        assert len(result.data["entries"]) == small_limit
+        assert result.data.get("truncated") is True
