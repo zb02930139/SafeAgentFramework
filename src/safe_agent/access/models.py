@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pydantic models for the IAM Policy Engine.
+"""Pydantic models for the Access Policy Engine.
 
 Defines the core data structures used for policy representation and
-authorization request/response handling, using AWS IAM-style JSON keys
-via Pydantic field aliases.
+authorization request/response handling, using JSON field aliases.
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ class Statement(BaseModel):
 
 
 class Policy(BaseModel):
-    """A top-level IAM-style policy document.
+    """A top-level access policy document.
 
     Attributes:
         version: The policy format version. Must be ``"2025-01"``.

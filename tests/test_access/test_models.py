@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for IAM Pydantic models."""
+"""Tests for access policy Pydantic models."""
 
 import pytest
 from pydantic import ValidationError
 
-from safe_agent.iam.models import (
+from safe_agent.access.models import (
     AuthorizationRequest,
     AuthorizationResult,
     Decision,

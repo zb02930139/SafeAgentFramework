@@ -19,9 +19,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from safe_agent.access.evaluator import PolicyEvaluator
+from safe_agent.access.models import AuthorizationRequest, Decision
 from safe_agent.core.audit import AuditEntry, AuditLogger
-from safe_agent.iam.evaluator import PolicyEvaluator
-from safe_agent.iam.models import AuthorizationRequest, Decision
 from safe_agent.modules.base import ToolResult
 from safe_agent.modules.registry import ModuleRegistry
 
@@ -49,8 +49,9 @@ class ToolDispatcher:
        a single empty-string resource (``""``). The policy must explicitly allow
        ``resource=""`` for such tools — there is no implicit pass.
     3. Call ``module.resolve_conditions()`` to obtain runtime context values.
-    4. For each resource: build an :class:`~safe_agent.iam.models.AuthorizationRequest`
-       and call :meth:`~safe_agent.iam.evaluator.PolicyEvaluator.evaluate`.
+    4. For each resource: build an :class:`~safe_agent.access.models.
+       AuthorizationRequest` and call :meth:`~safe_agent.access.evaluator.
+       PolicyEvaluator.evaluate`.
     5. Log every decision via :class:`~safe_agent.core.audit.AuditLogger`.
        Every outcome — allowed, denied, unknown-tool, internal error — produces
        an audit entry. There is no silent dispatch path.
@@ -72,7 +73,7 @@ class ToolDispatcher:
     Args:
         registry: The :class:`~safe_agent.modules.registry.ModuleRegistry`
             containing all registered modules.
-        evaluator: The :class:`~safe_agent.iam.evaluator.PolicyEvaluator`
+        evaluator: The :class:`~safe_agent.access.evaluator.PolicyEvaluator`
             for authorisation decisions.
         audit_logger: The :class:`~safe_agent.core.audit.AuditLogger` for
             recording every decision.

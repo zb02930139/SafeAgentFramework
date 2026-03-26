@@ -22,11 +22,11 @@ from unittest.mock import patch
 
 import pytest
 
+from safe_agent.access.evaluator import PolicyEvaluator
+from safe_agent.access.models import Decision, Policy
+from safe_agent.access.policy import PolicyStore
 from safe_agent.core.audit import AuditLogger
 from safe_agent.core.dispatcher import ToolDispatcher
-from safe_agent.iam.evaluator import PolicyEvaluator
-from safe_agent.iam.models import Decision, Policy
-from safe_agent.iam.policy import PolicyStore
 from safe_agent.modules.base import (
     BaseModule,
     ModuleDescriptor,

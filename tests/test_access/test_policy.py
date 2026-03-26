@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for PolicyStore."""
+"""Tests for PolicyStore — access policy document loading and management."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from safe_agent.iam.models import Policy
-from safe_agent.iam.policy import PolicyStore
+from safe_agent.access.models import Policy
+from safe_agent.access.policy import PolicyStore
 
 VALID_POLICY = {
     "Version": "2025-01",

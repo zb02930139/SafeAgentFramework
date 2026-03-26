@@ -102,7 +102,7 @@ class EmailBackend(Protocol):
 class EmailModule(BaseModule):
     """Email interface module using pluggable adapter pattern.
 
-    The framework defines the IAM surface (namespace, tool descriptors,
+    The framework defines the access control surface (namespace, tool descriptors,
     condition keys); a plugin provides the concrete EmailBackend implementation.
     This allows administrators to write policies against stable identifiers
     like "email:SendEmail" regardless of whether the backend is SendGrid,

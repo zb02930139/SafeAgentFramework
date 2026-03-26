@@ -22,8 +22,8 @@ from typing import Any
 import pytest
 
 from safe_agent import Agent
+from safe_agent.access.models import Decision, Policy, Statement
 from safe_agent.core.llm import LLMClient, LLMResponse, ToolCall
-from safe_agent.iam.models import Decision, Policy, Statement
 from safe_agent.modules.base import (
     BaseModule,
     ModuleDescriptor,

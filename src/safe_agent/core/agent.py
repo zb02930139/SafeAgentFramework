@@ -18,14 +18,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from safe_agent.access.evaluator import PolicyEvaluator
+from safe_agent.access.policy import PolicyStore
 from safe_agent.core.audit import AuditLogger
 from safe_agent.core.dispatcher import ToolDispatcher
 from safe_agent.core.event_loop import EventLoop
 from safe_agent.core.gateway import Gateway
 from safe_agent.core.llm import LLMClient
 from safe_agent.core.session import SessionManager
-from safe_agent.iam.evaluator import PolicyEvaluator
-from safe_agent.iam.policy import PolicyStore
 from safe_agent.modules.base import BaseModule
 from safe_agent.modules.registry import ModuleRegistry
 

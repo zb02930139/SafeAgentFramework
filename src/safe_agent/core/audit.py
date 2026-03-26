@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from safe_agent.iam.models import Decision
+from safe_agent.access.models import Decision
 
 _logger = logging.getLogger(__name__)
 

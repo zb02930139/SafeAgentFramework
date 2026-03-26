@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""IAM Policy Engine for SafeAgent.
+"""Access Policy Engine for SafeAgent.
 
-Provides AWS IAM-style policy evaluation with Allow/Deny statements,
+Provides access policy evaluation with Allow/Deny statements,
 wildcard action/resource matching, and condition operators.
 """
 
-from safe_agent.iam.evaluator import PolicyEvaluator
-from safe_agent.iam.models import (
+from safe_agent.access.evaluator import PolicyEvaluator
+from safe_agent.access.models import (
     AuthorizationRequest,
     AuthorizationResult,
     Decision,
     Policy,
     Statement,
 )
-from safe_agent.iam.policy import PolicyStore
+from safe_agent.access.policy import PolicyStore
 
 __all__ = [
     "AuthorizationRequest",

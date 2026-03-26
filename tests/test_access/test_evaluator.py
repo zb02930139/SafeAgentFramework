@@ -15,13 +15,13 @@
 
 """Tests for PolicyEvaluator."""
 
-from safe_agent.iam.evaluator import PolicyEvaluator
-from safe_agent.iam.models import (
+from safe_agent.access.evaluator import PolicyEvaluator
+from safe_agent.access.models import (
     AuthorizationRequest,
     Decision,
     Policy,
 )
-from safe_agent.iam.policy import PolicyStore
+from safe_agent.access.policy import PolicyStore
 
 
 def make_store(*policy_dicts) -> PolicyStore:

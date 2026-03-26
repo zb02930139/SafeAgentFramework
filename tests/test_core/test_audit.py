@@ -21,8 +21,8 @@ import json
 import threading
 from pathlib import Path
 
+from safe_agent.access.models import Decision
 from safe_agent.core.audit import AuditEntry, AuditLogger
-from safe_agent.iam.models import Decision
 
 
 def _make_entry(**overrides) -> AuditEntry:

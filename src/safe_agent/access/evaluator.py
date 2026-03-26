@@ -20,13 +20,13 @@ import fnmatch
 import math
 from typing import Any
 
-from safe_agent.iam.models import (
+from safe_agent.access.models import (
     AuthorizationRequest,
     AuthorizationResult,
     Decision,
     Statement,
 )
-from safe_agent.iam.policy import PolicyStore
+from safe_agent.access.policy import PolicyStore
 
 
 def _safe_float(value: Any) -> float | None:
@@ -157,9 +157,9 @@ def _evaluate_condition_block(
 
     Args:
         condition: The ``Condition`` dict from a
-            :class:`~safe_agent.iam.models.Statement`.
+            :class:`~safe_agent.access.models.Statement`.
         context: The ``context`` dict from the
-            :class:`~safe_agent.iam.models.AuthorizationRequest`.
+            :class:`~safe_agent.access.models.AuthorizationRequest`.
 
     Returns:
         ``True`` if all condition clauses are satisfied, ``False`` otherwise.
@@ -207,9 +207,9 @@ def _evaluate_condition_block(
 
 
 class PolicyEvaluator:
-    """Evaluates :class:`~safe_agent.iam.models.AuthorizationRequest` objects.
+    """Evaluates :class:`~safe_agent.access.models.AuthorizationRequest` objects.
 
-    Implements a 5-step AWS IAM-style evaluation algorithm:
+    Implements a 5-step policy evaluation algorithm:
 
     1. Default deny.
     2. Collect statements whose ``Action`` and ``Resource`` patterns match the
@@ -237,11 +237,11 @@ class PolicyEvaluator:
         """Evaluate *request* against all loaded policies.
 
         Args:
-            request: The :class:`~safe_agent.iam.models.AuthorizationRequest`
+            request: The :class:`~safe_agent.access.models.AuthorizationRequest`
                 to evaluate.
 
         Returns:
-            An :class:`~safe_agent.iam.models.AuthorizationResult` describing
+            An :class:`~safe_agent.access.models.AuthorizationResult` describing
             the decision, reason, and matched statements.
         """
         # Step 1: Default deny

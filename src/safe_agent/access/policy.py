@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""PolicyStore for loading and managing IAM policy documents."""
+"""PolicyStore for loading and managing access policy documents."""
 
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from safe_agent.iam.models import Policy, Statement
+from safe_agent.access.models import Policy, Statement
 
 VALID_VERSIONS = {"2025-01"}
 
 
 class PolicyStore:
-    """Stores and manages a collection of IAM policies.
+    """Stores and manages a collection of access policies.
 
     Policies can be loaded from JSON files or added programmatically.
     Once frozen, no further policies may be added.
@@ -50,7 +50,7 @@ class PolicyStore:
     def load(self, directory: Path) -> None:
         """Load all ``.json`` policy files from *directory*.
 
-        Each file is parsed as a :class:`~safe_agent.iam.models.Policy`.
+        Each file is parsed as a :class:`~safe_agent.access.models.Policy`.
         Files whose ``Version`` field is not ``"2025-01"`` are rejected
         with a :class:`ValueError`.
 
@@ -96,7 +96,7 @@ class PolicyStore:
         """Add a single policy to the store.
 
         Args:
-            policy: A validated :class:`~safe_agent.iam.models.Policy` instance.
+            policy: A validated :class:`~safe_agent.access.models.Policy` instance.
 
         Raises:
             ValueError: If the policy's ``version`` is not ``"2025-01"``.
@@ -137,7 +137,7 @@ class PolicyStore:
         modify the cached statements.
 
         Returns:
-            A flat sequence of :class:`~safe_agent.iam.models.Statement` objects
+            A flat sequence of :class:`~safe_agent.access.models.Statement` objects
             in the order they were added.
         """
         if self._frozen:

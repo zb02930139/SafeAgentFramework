@@ -7,14 +7,14 @@
 
 A pluggable, security-first agent framework. Build AI agents that interact with
 system resources (filesystem, shell, etc.) through modules gated by an
-AWS IAM-style policy engine. The agent can attempt any tool call — your policies
+access policy engine. The agent can attempt any tool call — your policies
 decide in code whether to execute it.
 
 ## Current Status
 
 **Active development — MVP complete.** SafeAgentFramework includes:
 
-- **IAM Policy Engine** — JSON policies with Allow/Deny statements, condition operators, and AWS-style evaluation logic
+- **Access Policy Engine** — JSON policies with Allow/Deny statements, condition operators, and policy evaluation
 - **Module Registry** — Pluggable modules with entry point discovery, tool descriptors, and dispatch
 - **Code Gate** — Every LLM tool call passes through policy evaluation before execution
 - **Filesystem Module** — Read/write operations with path-based policy controls
@@ -88,10 +88,10 @@ method works without inheriting from it.
 Three concepts:
 
 1. **Modules** — pluggable Python classes that provide tools (filesystem, shell,
-   etc.). Each module describes its tools and what IAM action/resource they
+   etc.). Each module describes its tools and what access action/resource they
    map to.
 2. **Policies** — JSON documents that allow or deny actions on resources.
-   Deny-by-default. Explicit deny always wins. Same evaluation logic as AWS IAM.
+   Deny-by-default. Explicit deny always wins. Same evaluation logic as industry-standard policy engines.
 3. **Code gate** — every tool call from the LLM passes through policy evaluation
    in application code. No prompt-based guardrails. The LLM never sees the
    policies.
