@@ -460,3 +460,43 @@ class TestCalendarBackendProtocol:
         backend = MockCalendarBackend()
         module = CalendarModule(backend)
         assert module._backend is backend
+
+
+class TestCalendarModuleKwargsForwarding:
+    """Tests for kwargs forwarding to backend for extensibility."""
+
+    async def test_list_events_forwards_extra_kwargs_to_backend(self) -> None:
+        """list_events should forward non-standard params to backend."""
+        backend = MockCalendarBackend()
+        module = CalendarModule(backend)
+
+        await module.execute(
+            "calendar:list_events",
+            {
+                "calendar_id": "primary",
+                "start": "2026-01-01T00:00:00Z",
+                "end": "2026-02-01T00:00:00Z",
+                "timeZone": "America/New_York",
+                "maxResults": 50,
+            },
+        )
+
+        assert backend.calls[0]["kwargs"]["timeZone"] == "America/New_York"
+        assert backend.calls[0]["kwargs"]["maxResults"] == 50
+
+    async def test_check_conflicts_forwards_extra_kwargs_to_backend(self) -> None:
+        """check_conflicts should forward non-standard params to backend."""
+        backend = MockCalendarBackend()
+        module = CalendarModule(backend)
+
+        await module.execute(
+            "calendar:check_conflicts",
+            {
+                "calendar_id": "primary",
+                "start": "2026-01-15T10:00:00Z",
+                "end": "2026-01-15T11:00:00Z",
+                "timeZone": "Europe/London",
+            },
+        )
+
+        assert backend.calls[0]["kwargs"]["timeZone"] == "Europe/London"

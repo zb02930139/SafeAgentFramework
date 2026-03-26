@@ -230,10 +230,10 @@ class CalendarModule(BaseModule):
 
     async def _create_event(self, params: dict[str, Any]) -> ToolResult[Any]:
         """Delegate create_event to the backend."""
-        calendar_id = str(params["calendar_id"])
-        title = str(params["title"])
-        start = str(params["start"])
-        end = str(params["end"])
+        calendar_id = str(params.get("calendar_id", ""))
+        title = str(params.get("title", ""))
+        start = str(params.get("start", ""))
+        end = str(params.get("end", ""))
 
         # Extract optional parameters
         kwargs: dict[str, Any] = {}
@@ -253,26 +253,40 @@ class CalendarModule(BaseModule):
 
     async def _list_events(self, params: dict[str, Any]) -> ToolResult[Any]:
         """Delegate list_events to the backend."""
-        calendar_id = str(params["calendar_id"])
-        start = str(params["start"])
-        end = str(params["end"])
+        calendar_id = str(params.get("calendar_id", ""))
+        start = str(params.get("start", ""))
+        end = str(params.get("end", ""))
+
+        # Extract optional parameters for backend extensibility
+        kwargs: dict[str, Any] = {}
+        for key in params:
+            if key not in ("calendar_id", "start", "end"):
+                kwargs[key] = params[key]
 
         result = await self._backend.list_events(
             calendar_id=calendar_id,
             start=start,
             end=end,
+            **kwargs,
         )
         return ToolResult(success=True, data={"events": result})
 
     async def _check_conflicts(self, params: dict[str, Any]) -> ToolResult[Any]:
         """Delegate check_conflicts to the backend."""
-        calendar_id = str(params["calendar_id"])
-        start = str(params["start"])
-        end = str(params["end"])
+        calendar_id = str(params.get("calendar_id", ""))
+        start = str(params.get("start", ""))
+        end = str(params.get("end", ""))
+
+        # Extract optional parameters for backend extensibility
+        kwargs: dict[str, Any] = {}
+        for key in params:
+            if key not in ("calendar_id", "start", "end"):
+                kwargs[key] = params[key]
 
         result = await self._backend.check_conflicts(
             calendar_id=calendar_id,
             start=start,
             end=end,
+            **kwargs,
         )
         return ToolResult(success=True, data=result)
