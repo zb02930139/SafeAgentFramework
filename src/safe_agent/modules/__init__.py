@@ -20,10 +20,13 @@ from safe_agent.modules.base import (
     ToolDescriptor,
     ToolResult,
 )
+from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.registry import ModuleRegistry
 
 __all__ = [
     "BaseModule",
+    "MessagingBackend",
+    "MessagingModule",
     "ModuleDescriptor",
     "ModuleRegistry",
     "ToolDescriptor",

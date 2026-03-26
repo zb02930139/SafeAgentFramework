@@ -87,7 +87,7 @@ class MessagingModule(BaseModule):
     delegating actual message operations to an injected backend provider.
 
     Attributes:
-        backend: The messaging backend implementation.
+        _backend: The messaging backend implementation (private).
     """
 
     def __init__(self, backend: MessagingBackend) -> None:
@@ -97,7 +97,7 @@ class MessagingModule(BaseModule):
             backend: An implementation of MessagingBackend that handles
                 actual message operations for a specific platform.
         """
-        self.backend = backend
+        self._backend = backend
 
     def describe(self) -> ModuleDescriptor:
         """Return the messaging module descriptor and tool definitions."""
@@ -111,9 +111,18 @@ class MessagingModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "channel": {"type": "string"},
-                            "text": {"type": "string"},
-                            "thread_id": {"type": "string"},
+                            "channel": {
+                                "type": "string",
+                                "description": "Target channel or user identifier.",
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "Message content to send.",
+                            },
+                            "thread_id": {
+                                "type": "string",
+                                "description": "Optional thread to reply within.",
+                            },
                         },
                         "required": ["channel", "text"],
                         "additionalProperties": False,
@@ -131,9 +140,22 @@ class MessagingModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "channel": {"type": "string"},
-                            "limit": {"type": "integer"},
-                            "since": {"type": "string"},
+                            "channel": {
+                                "type": "string",
+                                "description": "Source channel identifier.",
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Maximum number of messages to return.",
+                            },
+                            "since": {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": (
+                                    "Optional ISO 8601 timestamp to filter messages."
+                                ),
+                            },
                         },
                         "required": ["channel", "limit"],
                         "additionalProperties": False,
@@ -142,7 +164,6 @@ class MessagingModule(BaseModule):
                     resource_param=["channel"],
                     condition_keys=[
                         "messaging:Channel",
-                        "messaging:Recipient",
                     ],
                 ),
             ],
@@ -157,7 +178,7 @@ class MessagingModule(BaseModule):
 
         Derives condition keys for policy evaluation:
             - messaging:Channel: The target channel identifier.
-            - messaging:Recipient: Inferred recipient for DM channels.
+            - messaging:Recipient: Inferred recipient for DM channels (send only).
 
         Args:
             tool_name: The name of the tool being invoked.
@@ -175,10 +196,21 @@ class MessagingModule(BaseModule):
             "messaging:Channel": channel_str,
         }
 
-        # Infer recipient for DM-style channels (e.g., "@username", "D12345")
-        # This is a heuristic; backends may override with more precise logic.
-        if channel_str.startswith("@") or channel_str.upper().startswith("D"):
-            conditions["messaging:Recipient"] = channel_str.lstrip("@")
+        # Only infer recipient for send_message tool (not read_messages)
+        # and only for clear DM patterns:
+        #   - "@username" style (explicit user mention)
+        #   - "D" followed by digits (Slack DM channel convention: D12345)
+        # Avoid false positives on "#dev", "#design", "deployment-alerts", etc.
+        normalized_tool = tool_name.removeprefix("messaging:")
+        if normalized_tool == "send_message":
+            if channel_str.startswith("@"):
+                conditions["messaging:Recipient"] = channel_str.lstrip("@")
+            elif (
+                len(channel_str) > 1
+                and channel_str[0] == "D"
+                and channel_str[1:].isdigit()
+            ):
+                conditions["messaging:Recipient"] = channel_str
 
         return conditions
 
@@ -214,7 +246,7 @@ class MessagingModule(BaseModule):
         if "thread_id" in params:
             kwargs["thread_id"] = params["thread_id"]
 
-        result = await self.backend.send_message(channel, text, **kwargs)
+        result = await self._backend.send_message(channel, text, **kwargs)
         return ToolResult(success=True, data=result)
 
     async def _read_messages(self, params: dict[str, Any]) -> ToolResult[Any]:
@@ -225,5 +257,5 @@ class MessagingModule(BaseModule):
         if "since" in params:
             kwargs["since"] = params["since"]
 
-        messages = await self.backend.read_messages(channel, limit, **kwargs)
+        messages = await self._backend.read_messages(channel, limit, **kwargs)
         return ToolResult(success=True, data={"messages": messages})

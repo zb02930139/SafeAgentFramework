@@ -26,6 +26,8 @@ class MockMessagingBackend:
         """Initialize mock backend with storage for sent messages."""
         self.sent_messages: list[dict[str, Any]] = []
         self.stored_messages: dict[str, list[dict[str, Any]]] = {}
+        # Track kwargs passed to read_messages
+        self.last_read_kwargs: dict[str, Any] = {}
 
     async def send_message(
         self,
@@ -50,6 +52,7 @@ class MockMessagingBackend:
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Mock read_messages that returns stored messages for the channel."""
+        self.last_read_kwargs = kwargs  # Track what kwargs were passed
         messages = self.stored_messages.get(channel, [])
         return messages[:limit]
 
@@ -94,7 +97,8 @@ class TestMessagingModule:
 
         assert read_tool.action == "messaging:ReadMessages"
         assert read_tool.resource_param == ["channel"]
-        assert read_tool.condition_keys == ["messaging:Channel", "messaging:Recipient"]
+        # read_messages should NOT have messaging:Recipient (semantically wrong)
+        assert read_tool.condition_keys == ["messaging:Channel"]
 
     async def test_send_message_delegates_to_backend(self) -> None:
         """send_message should delegate to the backend and return success."""
@@ -178,6 +182,8 @@ class TestMessagingModule:
 
         assert result.success is True
         assert result.data == {"messages": [{"id": "m1", "text": "Message 1"}]}
+        # Verify the since kwarg was actually forwarded to the backend
+        assert backend.last_read_kwargs.get("since") == "2026-03-26T00:00:00Z"
 
     async def test_execute_returns_error_for_unknown_tool(self) -> None:
         """Execute should return error for unknown tool names."""
@@ -242,7 +248,24 @@ class TestMessagingModule:
             "messaging:Recipient": "alice",
         }
 
-        # Test D-style DM (Slack convention)
+        # Test D-style DM (Slack convention: D followed by digits)
+        conditions = await module.resolve_conditions(
+            "messaging:send_message",
+            {"channel": "D12345", "text": "hello"},
+        )
+
+        assert conditions == {
+            "messaging:Channel": "D12345",
+            "messaging:Recipient": "D12345",
+        }
+
+    async def test_resolve_conditions_no_recipient_for_read_messages(
+        self,
+    ) -> None:
+        """read_messages should not get messaging:Recipient condition key."""
+        backend = MockMessagingBackend()
+        module = MessagingModule(backend)
+
         conditions = await module.resolve_conditions(
             "messaging:read_messages",
             {"channel": "D12345", "limit": 10},
@@ -250,7 +273,41 @@ class TestMessagingModule:
 
         assert conditions == {
             "messaging:Channel": "D12345",
-            "messaging:Recipient": "D12345",
+        }
+
+    async def test_resolve_conditions_no_false_positive_recipient(self) -> None:
+        """resolve_conditions should not infer Recipient for #dev, #design, etc."""
+        backend = MockMessagingBackend()
+        module = MessagingModule(backend)
+
+        # Test that #dev does NOT get Recipient (D prefix on its own)
+        conditions = await module.resolve_conditions(
+            "messaging:send_message",
+            {"channel": "#dev", "text": "hello"},
+        )
+
+        assert conditions == {
+            "messaging:Channel": "#dev",
+        }
+
+        # Test that #design does NOT get Recipient
+        conditions = await module.resolve_conditions(
+            "messaging:send_message",
+            {"channel": "#design", "text": "hello"},
+        )
+
+        assert conditions == {
+            "messaging:Channel": "#design",
+        }
+
+        # Test that deployment-alerts does NOT get Recipient
+        conditions = await module.resolve_conditions(
+            "messaging:send_message",
+            {"channel": "deployment-alerts", "text": "hello"},
+        )
+
+        assert conditions == {
+            "messaging:Channel": "deployment-alerts",
         }
 
     async def test_resolve_conditions_returns_empty_for_missing_channel(
