@@ -284,7 +284,7 @@ class EmailModule(BaseModule):
     async def _execute_read_inbox(self, params: dict[str, Any]) -> ToolResult[Any]:
         """Execute email:read_inbox by delegating to backend."""
         folder = str(params.get("folder", "inbox"))
-        raw_limit = params.get("limit")
+        raw_limit = params.get("limit", 10)
         if not isinstance(raw_limit, int):
             try:
                 limit = int(raw_limit)  # type: ignore[arg-type]

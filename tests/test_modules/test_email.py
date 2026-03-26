@@ -418,6 +418,20 @@ class TestEmailModuleExecute:
 
         assert result.success is True
 
+    async def test_execute_read_inbox_default_limit(self) -> None:
+        """Execute read_inbox should use default limit of 10 if not specified."""
+        backend = MockEmailBackend()
+        module = EmailModule(backend)
+
+        result = await module.execute(
+            "email:read_inbox",
+            {"folder": "inbox"},
+        )
+
+        assert result.success is True
+        # Backend has 2 messages, default limit 10 should return both
+        assert len(result.data["messages"]) == 2
+
     async def test_execute_parse_email_success(self) -> None:
         """Execute parse_email should delegate to backend and return data."""
         backend = MockEmailBackend()
