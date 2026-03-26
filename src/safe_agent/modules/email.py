@@ -108,6 +108,12 @@ class EmailModule(BaseModule):
     like "email:SendEmail" regardless of whether the backend is SendGrid,
     Amazon SES, SMTP relay, etc.
 
+    Note:
+        Parameter validation (e.g., rejecting empty strings for required
+        params) is the responsibility of the framework's CodeGate layer,
+        not individual modules. Modules accept whatever params pass the
+        JSON Schema validation defined in their ToolDescriptor.
+
     Example usage:
         # In adapter package
         class SendGridBackend:
@@ -301,7 +307,7 @@ class EmailModule(BaseModule):
         raw_limit = params.get("limit", 10)
         if not isinstance(raw_limit, int):
             try:
-                limit = int(raw_limit)  # type: ignore[arg-type]
+                limit = int(raw_limit)
             except (TypeError, ValueError):
                 return ToolResult(
                     success=False,
