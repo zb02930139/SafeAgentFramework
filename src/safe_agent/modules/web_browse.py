@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+from html import unescape as html_unescape
 from typing import Any
 from urllib.parse import urlparse
 
@@ -62,9 +64,15 @@ def _extract_domain(url: str) -> str:
         # Handle IPv6 addresses - urlparse returns them without brackets
         # but we want to preserve the bracket notation for clarity
         hostname = parsed.hostname
-        if ":" in hostname and not hostname.startswith("["):
-            # This is an IPv6 address without brackets
-            hostname = f"[{hostname}]"
+        try:
+            # Try to parse as an IPv6 address (handles various formats)
+            ipaddress.IPv6Address(hostname)
+            # It's a valid IPv6 address - add brackets if not present
+            if not hostname.startswith("["):
+                hostname = f"[{hostname}]"
+        except (ipaddress.AddressValueError, ValueError):
+            # Not an IPv6 address, keep hostname as-is
+            pass
 
         # Handle port
         if parsed.port:
@@ -134,14 +142,8 @@ def _html_to_text(html: str) -> str:
     # Remove remaining tags
     text = re.sub(r"<[^>]+>", "", text)
 
-    # Decode common HTML entities
-    text = text.replace("&nbsp;", " ")
-    text = text.replace("&amp;", "&")
-    text = text.replace("&lt;", "<")
-    text = text.replace("&gt;", ">")
-    text = text.replace("&quot;", '"')
-    text = text.replace("&#39;", "'")
-    text = text.replace("&apos;", "'")
+    # Decode HTML entities using standard library
+    text = html_unescape(text)
 
     # Normalize whitespace
     text = re.sub(r"[ \t]+", " ", text)
@@ -518,11 +520,11 @@ class WebBrowseModule(BaseModule):
             params: The tool parameters.
 
         Returns:
-            Timeout value clamped to MAX_TIMEOUT, or None if invalid
-            (in which case an error message is returned).
+            Timeout value clamped to MAX_TIMEOUT, or None if invalid.
+            Returns None if timeout is not a valid number or is <= 0.
 
         Raises:
-            Nothing - errors are returned as tuple (None, error_message).
+            Nothing - callers must check for None return value.
         """
         raw_timeout = params.get("timeout", self.default_timeout)
         try:
