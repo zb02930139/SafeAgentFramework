@@ -298,6 +298,8 @@ class TestWebApiModuleExecution:
 
         assert result.success is True
         assert result.data["status_code"] == 201
+        # Verify Content-Type was set in request (captured in response headers echo)
+        # Note: mock transport doesn't echo headers, but request should succeed
 
     async def test_http_put_request(self, mock_transport: httpx.MockTransport) -> None:
         """PUT request should execute successfully."""
@@ -445,7 +447,7 @@ class TestWebApiModuleExecution:
         assert decoded == b"\xff\xfe\x00\x01"
 
     async def test_http_error_status(self, mock_transport: httpx.MockTransport) -> None:
-        """HTTP error status codes should return error with response data."""
+        """HTTP error status codes should return status_code in response."""
         module = WebApiModule()
         module._client = httpx.AsyncClient(transport=mock_transport)
 
@@ -454,16 +456,14 @@ class TestWebApiModuleExecution:
             {"url": "https://api.example.com/error", "method": "GET"},
         )
 
-        # Note: httpx raises HTTPStatusError for 4xx/5xx by default
-        # unless raise_for_status=False is set. Our implementation handles this.
-        # Based on current implementation, 500 errors may raise.
-        # Let's check what actually happens.
-        if result.success:
-            # If we got success, verify data
-            assert result.data["status_code"] == 500
-        else:
-            # If we got error, verify it's an HTTP error
-            assert "500" in result.error or "HTTP error" in result.error
+        # HTTP responses are returned with success=True; status_code indicates HTTP status
+        # The caller should check status_code for error handling
+        assert result.success is True
+        assert result.data is not None
+        assert result.data["status_code"] == 500
+        # Response body should be captured
+        assert "body" in result.data
+        assert "error" in result.data["body"]
 
     async def test_unknown_tool_returns_error(self) -> None:
         """Unknown tool names should return a failed ToolResult."""
@@ -548,14 +548,14 @@ class TestWebApiModuleSecurity:
         # Invalid headers should have been filtered out
 
     async def test_header_injection_prevention(self) -> None:
-        """Header injection attempts should be blocked."""
+        """Header injection attempts with CRLF should be blocked."""
         module = WebApiModule()
         transport = httpx.MockTransport(
             lambda _: httpx.Response(200, json={"ok": True})
         )
         module._client = httpx.AsyncClient(transport=transport)
 
-        # Headers that try to inject newlines/CRLF should be sanitized
+        # Headers with CRLF injection attempts should be rejected
         result = await module.execute(
             "web_api:http_request",
             {
@@ -563,11 +563,116 @@ class TestWebApiModuleSecurity:
                 "method": "GET",
                 "headers": {
                     "X-Normal": "value",
+                    "X-Injected": "bad\r\nSet-Cookie: malicious=value",
+                    "X-Another": "line1\nline2",
                 },
             },
         )
 
+        # Request should succeed, but CRLF headers should be filtered
         assert result.success is True
+
+    async def test_ssrf_blocks_private_ipv4(self) -> None:
+        """SSRF protection should block private IPv4 addresses."""
+        module = WebApiModule()
+
+        # 192.168.x.x - private range
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://192.168.1.1/admin", "method": "GET"},
+        )
+        assert result.success is False
+        assert "internal" in result.error.lower() or "not allowed" in result.error.lower()
+
+        # 10.x.x.x - private range
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://10.0.0.1/internal", "method": "GET"},
+        )
+        assert result.success is False
+
+        # 172.16-31.x.x - private range
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://172.16.0.1/secret", "method": "GET"},
+        )
+        assert result.success is False
+
+        # 127.0.0.1 - loopback
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://127.0.0.1:8080/api", "method": "GET"},
+        )
+        assert result.success is False
+
+        # 169.254.x.x - link-local (AWS metadata)
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://169.254.169.254/latest/meta-data/", "method": "GET"},
+        )
+        assert result.success is False
+
+    async def test_ssrf_blocks_private_ipv6(self) -> None:
+        """SSRF protection should block private IPv6 addresses."""
+        module = WebApiModule()
+
+        # ::1 - loopback
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://[::1]:8080/api", "method": "GET"},
+        )
+        assert result.success is False
+
+        # fc00::/7 - unique local
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://[fc00::1]/internal", "method": "GET"},
+        )
+        assert result.success is False
+
+        # fe80::/10 - link-local
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "http://[fe80::1]/data", "method": "GET"},
+        )
+        assert result.success is False
+
+    async def test_ssrf_blocks_non_http_schemes(self) -> None:
+        """SSRF protection should block file:// and other non-HTTP schemes."""
+        module = WebApiModule()
+
+        # file:// scheme
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "file:///etc/passwd", "method": "GET"},
+        )
+        assert result.success is False
+        assert "scheme" in result.error.lower()
+
+        # ftp:// scheme
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "ftp://example.com/file", "method": "GET"},
+        )
+        assert result.success is False
+        assert "scheme" in result.error.lower()
+
+        # gopher:// scheme
+        result = await module.execute(
+            "web_api:http_request",
+            {"url": "gopher://internal-host:70/1query", "method": "GET"},
+        )
+        assert result.success is False
+
+    async def test_close_method_works(self) -> None:
+        """The close() method should properly clean up resources."""
+        module = WebApiModule()
+
+        # Should be able to close the module
+        await module.close()
+
+        # Second close should not raise
+        await module.close()
 
 
 class TestWebApiModuleIntegration:

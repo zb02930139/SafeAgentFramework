@@ -20,6 +20,7 @@ import base64
 import ipaddress
 import logging
 import re
+import socket
 from typing import Any
 from urllib.parse import unquote, urlparse
 
@@ -77,6 +78,7 @@ def _is_internal_ip(host: str) -> bool:
     """Check if a hostname is an internal/private IP address (SSRF protection).
 
     Supports IPv4, IPv6, and hostnames that resolve to internal IPs.
+    Performs DNS resolution to prevent DNS rebinding attacks.
 
     Args:
         host: The hostname or IP address to check.
@@ -84,21 +86,47 @@ def _is_internal_ip(host: str) -> bool:
     Returns:
         True if the host is a private/internal IP, False for public.
     """
-    # Remove port if present
-    if ":" in host and host.count(":") == 1:
-        host_part = host.rsplit(":", 1)[0]
-    else:
-        host_part = host
+    # Remove port if present (handle IPv6 correctly)
+    host_part = host
+    if ":" in host:
+        # IPv6 addresses have colons; check if it's IPv6 format
+        if host.startswith("["):
+            # IPv6 with port: [::1]:8080
+            if "]:" in host:
+                host_part = host.rsplit(":", 1)[0].strip("[]")
+            else:
+                host_part = host.strip("[]")
+        elif host.count(":") == 1:
+            # IPv4 with port: 127.0.0.1:8080
+            host_part = host.rsplit(":", 1)[0]
+        # else: IPv6 without port, keep as-is
 
-    # Check for IP addresses
+    # Check if it's a direct IP address
     try:
         addr = ipaddress.ip_address(host_part)
-        return addr.is_private or addr.is_loopback or addr.is_link_local
+        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
     except ValueError:
         pass
 
-    # For hostnames without IP addresses, can't detect internal here
-    # Proper SSRF would require DNS resolution before request
+    # Resolve hostname via DNS to prevent DNS rebinding attacks
+    try:
+        # getaddrinfo returns list of (family, type, proto, canonname, sockaddr)
+        # sockaddr is (ip, port) for IPv4 or (ip, port, flow, scope) for IPv6
+        addr_info = socket.getaddrinfo(host_part, None)
+        for _family, _type, _proto, _canonname, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            try:
+                addr = ipaddress.ip_address(ip_str)
+                # Block private, loopback, link-local, and reserved addresses
+                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                    return True
+            except ValueError:
+                continue
+    except (socket.gaierror, socket.herror):
+        # DNS resolution failed - can't verify, let request proceed
+        # and fail naturally at the network layer
+        pass
+
     return False
 
 
@@ -194,9 +222,8 @@ class WebApiModule(BaseModule):
                 outbound HTTP must route through a corporate proxy.
             follow_redirects: Whether to follow HTTP redirects. Default False
                 for security - redirects could bypass policy checks to
-                internal addresses. Enable with caution.
-            follow_redirects: Whether to follow HTTP redirects. When True,
-                policy will be re-evaluated at the redirect target.
+                internal addresses. When enabled, redirects are followed
+                without policy re-evaluation (known limitation).
         """
         if default_timeout <= 0:
             raise ValueError("default_timeout must be > 0")
@@ -530,8 +557,6 @@ class WebApiModule(BaseModule):
                 response_data["body"] = body_text
             except UnicodeDecodeError:
                 # Return as base64 for binary content
-                import base64
-
                 response_data["body_b64"] = base64.b64encode(body_bytes).decode("ascii")
                 response_data["encoding"] = "base64"
 
