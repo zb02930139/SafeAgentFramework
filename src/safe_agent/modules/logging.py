@@ -22,7 +22,7 @@ and IAM surface; the backend provides the concrete implementation.
 from __future__ import annotations
 
 import logging as stdlib_logging
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from safe_agent.modules.base import (
     BaseModule,
@@ -34,6 +34,7 @@ from safe_agent.modules.base import (
 logger = stdlib_logging.getLogger(__name__)
 
 
+@runtime_checkable
 class LoggingBackend(Protocol):
     """Protocol for pluggable logging backend implementations.
 
