@@ -22,6 +22,7 @@ from safe_agent.modules.base import (
 )
 from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.registry import ModuleRegistry
+from safe_agent.modules.vault import VaultBackend, VaultModule
 
 __all__ = [
     "BaseModule",
@@ -31,4 +32,6 @@ __all__ = [
     "ModuleRegistry",
     "ToolDescriptor",
     "ToolResult",
+    "VaultBackend",
+    "VaultModule",
 ]
