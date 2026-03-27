@@ -80,6 +80,15 @@ class TestAuditModuleDescriptor:
         with pytest.raises(ValueError, match="max_results must be positive"):
             AuditModule(audit_log_path=log_file, max_results=-1)
 
+    def test_audit_log_path_is_resolved(self, tmp_path: Path) -> None:
+        """audit_log_path should be resolved to absolute path."""
+        log_file = tmp_path / "nested" / ".." / "audit.jsonl"
+        module = AuditModule(audit_log_path=log_file)
+
+        # Path should be resolved (no .. components)
+        assert ".." not in str(module.audit_log_path)
+        assert module.audit_log_path.is_absolute()
+
 
 class TestAuditModuleResolveConditions:
     """Tests for resolve_conditions() method."""

@@ -197,7 +197,7 @@ class AuditModule(BaseModule):
                 data={
                     "entries": results,
                     "count": len(results),
-                    "truncated": len(results) >= limit,
+                    "truncated": len(results) == limit,
                 },
             )
 
@@ -345,13 +345,10 @@ class AuditModule(BaseModule):
             Parsed datetime, or None if parsing fails.
         """
         try:
-            # Try parsing with timezone info (e.g., 2026-03-26T23:19:00+00:00)
-            if "+" in timestamp or timestamp.endswith("Z"):
-                # Handle Z suffix for UTC
-                normalized = timestamp.replace("Z", "+00:00")
-                return datetime.fromisoformat(normalized)
-            # Fallback to naive parsing
-            return datetime.fromisoformat(timestamp)
+            # Handle Z suffix for UTC
+            normalized = timestamp.replace("Z", "+00:00")
+            # Handle negative timezone offsets by checking for pattern
+            return datetime.fromisoformat(normalized)
         except (ValueError, TypeError):
             logger.debug("audit: unable to parse timestamp: %r", timestamp)
             return None
