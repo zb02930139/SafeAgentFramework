@@ -47,6 +47,26 @@ from safe_agent.modules.base import (
 
 logger = logging.getLogger(__name__)
 
+# SQL patterns for validation
+_DDL_PATTERN = re.compile(
+    r"\b(CREATE|DROP|ALTER|TRUNCATE)\b",
+    re.IGNORECASE,
+)
+_READONLY_PATTERN = re.compile(
+    r"^\s*SELECT\b",
+    re.IGNORECASE,
+)
+
+
+def _is_ddl(sql: str) -> bool:
+    """Check if SQL contains DDL statements (CREATE, DROP, ALTER, TRUNCATE)."""
+    return bool(_DDL_PATTERN.search(sql))
+
+
+def _is_readonly(sql: str) -> bool:
+    """Check if SQL is a read-only SELECT statement."""
+    return bool(_READONLY_PATTERN.match(sql))
+
 
 @runtime_checkable
 class DatabaseBackend(Protocol):
@@ -239,55 +259,108 @@ class DatabaseModule(BaseModule):
 
         return conditions
 
+    def _validate_params(
+        self,
+        params: dict[str, Any],
+        sql_error_msg: str,
+    ) -> tuple[str, str] | ToolResult[Any]:
+        """Validate common parameters for database operations.
+
+        Args:
+            params: The input parameters for the tool.
+            sql_error_msg: Error message for empty SQL (query vs statement).
+
+        Returns:
+            Tuple of (database, sql) if valid, or ToolResult with error.
+        """
+        database = params.get("database")
+        if database is None:
+            return ToolResult(
+                success=False,
+                error="Missing required parameter: database",
+            )
+
+        sql = params.get("sql")
+        if sql is None:
+            return ToolResult(
+                success=False,
+                error="Missing required parameter: sql",
+            )
+
+        database = str(database)
+        sql = str(sql)
+        if not database or not database.strip():
+            return ToolResult(
+                success=False,
+                error="Database name must not be empty",
+            )
+        if not sql or not sql.strip():
+            return ToolResult(
+                success=False,
+                error=sql_error_msg,
+            )
+
+        return database, sql
+
     def _extract_table_name(self, sql: str) -> str | None:
         """Extract table name from SQL query using best-effort parsing.
 
         Supports common SQL patterns:
             - SELECT ... FROM table_name [WHERE ...]
+            - SELECT ... FROM schema.table_name [WHERE ...]
             - INSERT INTO table_name [(columns)] VALUES ...
+            - INSERT INTO schema.table_name ...
             - UPDATE table_name SET ...
+            - UPDATE schema.table_name SET ...
             - DELETE FROM table_name [WHERE ...]
+            - DELETE FROM schema.table_name [WHERE ...]
+
+        Limitations:
+            - Only extracts the first table from FROM/INTO/UPDATE clauses.
+            - Does not parse JOINs, subqueries, or CTEs.
+            - For complex queries with multiple tables, returns only the primary table.
 
         Args:
             sql: The SQL query string.
 
         Returns:
-            The extracted table name, or None if extraction fails.
+            The extracted table name (including schema if present),
+            or None if extraction fails.
         """
         # Normalize SQL: collapse whitespace, convert to uppercase for matching
         normalized = " ".join(sql.upper().split())
 
-        # Pattern 1: SELECT ... FROM table_name
-        # Matches: SELECT * FROM users, SELECT id FROM users WHERE ...
+        # Pattern for optional schema and table name: [SCHEMA.]TABLE
+        # Schema and table can each contain letters, digits, underscores
+        table_pattern = r"([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)"
+
+        # Pattern 1: SELECT ... FROM table_name or schema.table_name
         select_match = re.search(
-            r"\bFROM\s+([A-Z_][A-Z0-9_]*)",
+            rf"\bFROM\s+{table_pattern}",
             normalized,
         )
         if select_match:
             return select_match.group(1).lower()
 
-        # Pattern 2: INSERT INTO table_name
-        # Matches: INSERT INTO users (id) VALUES (1)
+        # Pattern 2: INSERT INTO table_name or schema.table_name
         insert_match = re.search(
-            r"\bINSERT\s+INTO\s+([A-Z_][A-Z0-9_]*)",
+            rf"\bINSERT\s+INTO\s+{table_pattern}",
             normalized,
         )
         if insert_match:
             return insert_match.group(1).lower()
 
-        # Pattern 3: UPDATE table_name SET
-        # Matches: UPDATE users SET name = 'x' WHERE ...
+        # Pattern 3: UPDATE table_name SET or schema.table_name SET
         update_match = re.search(
-            r"\bUPDATE\s+([A-Z_][A-Z0-9_]*)\s+SET\b",
+            rf"\bUPDATE\s+{table_pattern}\s+SET\b",
             normalized,
         )
         if update_match:
             return update_match.group(1).lower()
 
-        # Pattern 4: DELETE FROM table_name
-        # Matches: DELETE FROM users WHERE ...
+        # Pattern 4: DELETE FROM table_name or schema.table_name
         delete_match = re.search(
-            r"\bDELETE\s+FROM\s+([A-Z_][A-Z0-9_]*)",
+            rf"\bDELETE\s+FROM\s+{table_pattern}",
             normalized,
         )
         if delete_match:
@@ -324,32 +397,32 @@ class DatabaseModule(BaseModule):
 
         Security Note:
             Logs the database and SQL at DEBUG level. Query results are NOT logged.
+            Rejects non-SELECT statements and DDL operations.
         """
-        database = params.get("database")
-        if database is None:
+        validation_result = self._validate_params(params, "SQL query must not be empty")
+        if isinstance(validation_result, ToolResult):
+            return validation_result
+
+        database, sql = validation_result
+
+        # Security: Reject non-SELECT statements in query tool
+        if not _is_readonly(sql):
             return ToolResult(
                 success=False,
-                error="Missing required parameter: database",
+                error=(
+                    "Query tool only accepts SELECT statements. "
+                    "Use execute_statement for INSERT, UPDATE, DELETE."
+                ),
             )
 
-        sql = params.get("sql")
-        if sql is None:
+        # Security: Block DDL even if it somehow passes the SELECT check
+        if _is_ddl(sql):
             return ToolResult(
                 success=False,
-                error="Missing required parameter: sql",
-            )
-
-        database = str(database)
-        sql = str(sql)
-        if not database or not database.strip():
-            return ToolResult(
-                success=False,
-                error="Database name must not be empty",
-            )
-        if not sql or not sql.strip():
-            return ToolResult(
-                success=False,
-                error="SQL query must not be empty",
+                error=(
+                    "DDL statements (CREATE, DROP, ALTER, TRUNCATE) "
+                    "are not allowed."
+                ),
             )
 
         logger.debug("Database query: database=%s sql=%s", database, sql)
@@ -366,38 +439,33 @@ class DatabaseModule(BaseModule):
 
         Security Note:
             This is a privileged action that performs write operations.
-            Logs the database and SQL at INFO level for audit trail.
+            Logs the database name at INFO level for audit trail.
+            SQL is logged at DEBUG level to avoid logging PII.
             Result data is NOT logged.
+            Blocks DDL statements (CREATE, DROP, ALTER, TRUNCATE).
         """
-        database = params.get("database")
-        if database is None:
+        validation_result = self._validate_params(
+            params,
+            "SQL statement must not be empty",
+        )
+        if isinstance(validation_result, ToolResult):
+            return validation_result
+
+        database, sql = validation_result
+
+        # Security: Block DDL statements
+        if _is_ddl(sql):
             return ToolResult(
                 success=False,
-                error="Missing required parameter: database",
+                error=(
+                    "DDL statements (CREATE, DROP, ALTER, TRUNCATE) are not "
+                    "allowed via execute_statement."
+                ),
             )
 
-        sql = params.get("sql")
-        if sql is None:
-            return ToolResult(
-                success=False,
-                error="Missing required parameter: sql",
-            )
-
-        database = str(database)
-        sql = str(sql)
-        if not database or not database.strip():
-            return ToolResult(
-                success=False,
-                error="Database name must not be empty",
-            )
-        if not sql or not sql.strip():
-            return ToolResult(
-                success=False,
-                error="SQL statement must not be empty",
-            )
-
-        # Log write operations at INFO level for audit trail
-        logger.info("Database execute_statement: database=%s sql=%s", database, sql)
+        # Log write operations: database at INFO, SQL at DEBUG (PII risk mitigation)
+        logger.info("Database execute_statement: database=%s", database)
+        logger.debug("Database execute_statement SQL: %s", sql)
 
         result = await self._backend.execute_statement(database, sql)
         return ToolResult(success=True, data=result)
