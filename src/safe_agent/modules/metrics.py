@@ -34,6 +34,8 @@ from safe_agent.modules.base import (
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["MetricsBackend", "MetricsModule"]
+
 
 @runtime_checkable
 class MetricsBackend(Protocol):
