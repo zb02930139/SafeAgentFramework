@@ -49,6 +49,7 @@ dev = [
 filesystem = "safe_agent.modules.filesystem:FilesystemModule"
 shell = "safe_agent.modules.shell:ShellModule"
 web_api = "safe_agent.modules.web_api:WebApiModule"
+web_browse = "safe_agent.modules.web_browse:WebBrowseModule"
 remote_ssh = "safe_agent.modules.remote_ssh:RemoteSSHModule"
 audit = "safe_agent.modules.audit:AuditModule"
 
