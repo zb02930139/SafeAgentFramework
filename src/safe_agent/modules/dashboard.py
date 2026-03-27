@@ -41,7 +41,7 @@ class DashboardBackend(Protocol):
         dashboard_id: str,
         panel_id: str,
         **kwargs: Any,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Retrieve a specific panel's data or snapshot.
 
         Args:
@@ -49,14 +49,14 @@ class DashboardBackend(Protocol):
             panel_id: The identifier of the panel within the dashboard.
             **kwargs: Optional parameters including:
                 - time_range: Optional time range string (e.g., "7d", "90d")
-                - format: Optional output format ("data" or "snapshot")
+                - output_format: Optional output format ("data" or "snapshot")
 
         Returns:
             Dict containing panel data or snapshot information.
         """
         ...
 
-    async def list_dashboards(self, **kwargs: Any) -> list[dict]:
+    async def list_dashboards(self, **kwargs: Any) -> list[dict[str, Any]]:
         """List available dashboards.
 
         Args:
@@ -104,7 +104,7 @@ class DashboardModule(BaseModule):
                                 "type": "string",
                                 "description": "Optional time range (e.g. '7d', '90d')",
                             },
-                            "format": {
+                            "output_format": {
                                 "type": "string",
                                 "enum": ["data", "snapshot"],
                                 "description": "Output format: 'data' or 'snapshot'",
@@ -180,13 +180,13 @@ class DashboardModule(BaseModule):
         dashboard_id = str(params["dashboard_id"])
         panel_id = str(params["panel_id"])
         time_range = params.get("time_range")
-        format_val = params.get("format")
+        output_format = params.get("output_format")
 
         kwargs: dict[str, Any] = {}
         if time_range is not None:
             kwargs["time_range"] = str(time_range)
-        if format_val is not None:
-            kwargs["format"] = str(format_val)
+        if output_format is not None:
+            kwargs["output_format"] = str(output_format)
 
         result = await self._backend.get_panel(dashboard_id, panel_id, **kwargs)
         return ToolResult(success=True, data=result)

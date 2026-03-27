@@ -38,19 +38,19 @@ class MockDashboardBackend:
         dashboard_id: str,
         panel_id: str,
         **kwargs: Any,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Mock get_panel implementation."""
         key = f"{dashboard_id}:{panel_id}"
         if key in self._panels:
             result = dict(self._panels[key])
             if kwargs.get("time_range"):
                 result["time_range"] = kwargs["time_range"]
-            if kwargs.get("format"):
-                result["format"] = kwargs["format"]
+            if kwargs.get("output_format"):
+                result["output_format"] = kwargs["output_format"]
             return result
         raise ValueError(f"Panel not found: {key}")
 
-    async def list_dashboards(self, **kwargs: Any) -> list[dict]:
+    async def list_dashboards(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Mock list_dashboards implementation."""
         result = list(self._dashboards)
         if kwargs.get("filter"):
@@ -96,7 +96,7 @@ class TestDashboardModule:
         assert "dashboard_id" in get_panel_tool.parameters["properties"]
         assert "panel_id" in get_panel_tool.parameters["properties"]
         assert "time_range" in get_panel_tool.parameters["properties"]
-        assert "format" in get_panel_tool.parameters["properties"]
+        assert "output_format" in get_panel_tool.parameters["properties"]
         assert get_panel_tool.parameters["required"] == ["dashboard_id", "panel_id"]
         assert get_panel_tool.parameters["additionalProperties"] is False
 
@@ -180,13 +180,13 @@ class TestDashboardModule:
                 "dashboard_id": "dash-1",
                 "panel_id": "panel-a",
                 "time_range": "7d",
-                "format": "snapshot",
+                "output_format": "snapshot",
             },
         )
 
         assert result.success is True
         assert result.data["time_range"] == "7d"
-        assert result.data["format"] == "snapshot"
+        assert result.data["output_format"] == "snapshot"
 
     async def test_execute_list_dashboards(self) -> None:
         """Execute should delegate to backend.list_dashboards."""
