@@ -23,7 +23,7 @@ provides the concrete implementation.
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from safe_agent.modules.base import (
     BaseModule,
@@ -35,6 +35,7 @@ from safe_agent.modules.base import (
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
 class MetricsBackend(Protocol):
     """Protocol for metrics backend implementations.
 
@@ -188,10 +189,10 @@ class MetricsModule(BaseModule):
         Returns:
             A ToolResult with the query response or error.
         """
-        if tool_name != "metrics:query_metrics":
-            return ToolResult(success=False, error=f"Unknown tool: {tool_name}")
-
         try:
+            if tool_name != "metrics:query_metrics":
+                return ToolResult(success=False, error=f"Unknown tool: {tool_name}")
+
             result = await self._backend.query_metrics(
                 datasource=params["datasource"],
                 query=params["query"],
@@ -200,6 +201,8 @@ class MetricsModule(BaseModule):
                 step=params.get("step"),
             )
             return ToolResult(success=True, data=result)
+        except KeyError as exc:
+            return ToolResult(success=False, error=f"Missing required parameter: {exc}")
         except Exception as exc:
             logger.exception("Metrics backend query failed")
             return ToolResult(success=False, error=str(exc))
@@ -223,6 +226,7 @@ class MetricsModule(BaseModule):
             keyword in query_lower
             for keyword in [
                 "rate(",
+                "irate(",
                 "increase(",
                 "sum(",
                 "avg(",
