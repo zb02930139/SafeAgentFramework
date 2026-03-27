@@ -16,11 +16,12 @@
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -38,9 +39,15 @@ _VALID_HTTP_METHODS: frozenset[str] = frozenset(
     {"GET", "POST", "PUT", "PATCH", "DELETE"}
 )
 
+# Valid URL schemes (SSRF protection: only http/https)
+_VALID_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
 # Header name validation pattern (RFC 7230 compliant subset)
 # Must start with letter, can contain letters, digits, hyphens
 _HEADER_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9\-]*$")
+
+# Header value CRLF pattern (injection protection)
+_HEADER_CRLF_PATTERN = re.compile(r"[\r\n]")
 
 # Response size limit default (5MB)
 _DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024
@@ -50,48 +57,6 @@ _DEFAULT_TIMEOUT = 30.0
 
 # Maximum allowed timeout (prevent indefinitely long requests)
 _MAX_TIMEOUT = 300.0
-
-
-def _parse_url(url: str) -> tuple[str, str, str]:
-    """Parse a URL and extract domain, path, and method context.
-
-    Args:
-        url: The URL string to parse.
-
-    Returns:
-        Tuple of (domain, path, raw_path). Domain includes port if present.
-
-    Raises:
-        ValueError: If URL is malformed or missing required components.
-    """
-    parsed = urlparse(url)
-
-    if not parsed.scheme:
-        raise ValueError("URL must include a scheme (http:// or https://)")
-
-    if not parsed.hostname:
-        raise ValueError("URL must include a hostname")
-
-    # Handle port in domain
-    if parsed.port:
-        domain = f"{parsed.hostname}:{parsed.port}"
-    else:
-        domain = parsed.hostname
-
-    # Path handling - preserve raw path including encoded chars
-    path = parsed.path if parsed.path else "/"
-    raw_path = parsed.path if parsed.path else "/"
-
-    # Normalize path for policy checks (decode percent encoding)
-    # But keep raw for display/logging
-    try:
-        from urllib.parse import unquote
-
-        decoded_path = unquote(path)
-    except Exception:
-        decoded_path = path
-
-    return domain, decoded_path, raw_path
 
 
 def _is_valid_header_name(name: str) -> bool:
@@ -106,6 +71,77 @@ def _is_valid_header_name(name: str) -> bool:
     if not name:
         return False
     return bool(_HEADER_NAME_PATTERN.match(name))
+
+
+def _is_internal_ip(host: str) -> bool:
+    """Check if a hostname is an internal/private IP address (SSRF protection).
+
+    Supports IPv4, IPv6, and hostnames that resolve to internal IPs.
+
+    Args:
+        host: The hostname or IP address to check.
+
+    Returns:
+        True if the host is a private/internal IP, False for public.
+    """
+    # Remove port if present
+    if ":" in host and host.count(":") == 1:
+        host_part = host.rsplit(":", 1)[0]
+    else:
+        host_part = host
+
+    # Check for IP addresses
+    try:
+        addr = ipaddress.ip_address(host_part)
+        return addr.is_private or addr.is_loopback or addr.is_link_local
+    except ValueError:
+        pass
+
+    # For hostnames without IP addresses, can't detect internal here
+    # Proper SSRF would require DNS resolution before request
+    return False
+
+
+def _validate_url(url: str) -> tuple[str, str, str]:
+    """Validate URL for SSRF protection and return domain, path components.
+
+    Args:
+        url: The URL string to validate.
+
+    Returns:
+        Tuple of (domain, path, raw_path).
+
+    Raises:
+        ValueError: If URL scheme is invalid or SSRF checks fail.
+    """
+    parsed = urlparse(url)
+
+    # Scheme validation (SSRF protection)
+    if parsed.scheme not in _VALID_SCHEMES:
+        raise ValueError(
+            f"Invalid URL scheme: {parsed.scheme!r}. "
+            f"Only {', '.join(sorted(_VALID_SCHEMES))} allowed."
+        )
+
+    if not parsed.hostname:
+        raise ValueError("URL must include a hostname")
+
+    # Handle port in domain
+    if parsed.port:
+        domain = f"{parsed.hostname}:{parsed.port}"
+    else:
+        domain = parsed.hostname
+
+    # Block internal IP addresses (SSRF protection)
+    if _is_internal_ip(parsed.hostname):
+        raise ValueError("Access to internal IP addresses is not allowed")
+
+    # Path handling
+    path = parsed.path if parsed.path else "/"
+    raw_path = parsed.path if parsed.path else "/"
+    decoded_path = unquote(path)
+
+    return domain, decoded_path, raw_path
 
 
 def _validate_method(method: str) -> str:
@@ -129,29 +165,6 @@ def _validate_method(method: str) -> str:
     return normalized
 
 
-def _is_ip_address(host: str) -> bool:
-    """Check if a hostname is an IP address (v4 or v6).
-
-    Args:
-        host: The hostname or IP address to check.
-
-    Returns:
-        True if the host is an IP address, False otherwise.
-    """
-    # Remove port if present
-    if ":" in host and host.count(":") == 1:
-        # Could be IPv4:port or hostname:port
-        host_part = host.rsplit(":", 1)[0]
-    else:
-        host_part = host
-
-    try:
-        ipaddress.ip_address(host_part)
-        return True
-    except ValueError:
-        return False
-
-
 class WebApiModule(BaseModule):
     """Provide controlled HTTP/API calls to external services.
 
@@ -166,7 +179,7 @@ class WebApiModule(BaseModule):
         max_response_size: int = _DEFAULT_MAX_RESPONSE_SIZE,
         allowed_methods: list[str] | None = None,
         proxy_url: str | None = None,
-        follow_redirects: bool = True,
+        follow_redirects: bool = False,
     ) -> None:
         """Initialize web API execution settings.
 
@@ -179,6 +192,9 @@ class WebApiModule(BaseModule):
                 all standard methods (GET, POST, PUT, PATCH, DELETE) are allowed.
             proxy_url: Optional forward proxy URL for environments where
                 outbound HTTP must route through a corporate proxy.
+            follow_redirects: Whether to follow HTTP redirects. Default False
+                for security - redirects could bypass policy checks to
+                internal addresses. Enable with caution.
             follow_redirects: Whether to follow HTTP redirects. When True,
                 policy will be re-evaluated at the redirect target.
         """
@@ -323,9 +339,9 @@ class WebApiModule(BaseModule):
         if method in _VALID_HTTP_METHODS:
             conditions["web_api:Method"] = method
 
-        # URL parsing for domain/path
+        # URL validation and parsing for domain/path
         try:
-            domain, path, _ = _parse_url(url)
+            domain, path, _ = _validate_url(url)
             conditions["web_api:Domain"] = domain
             conditions["web_api:Path"] = path
         except ValueError:
@@ -388,9 +404,9 @@ class WebApiModule(BaseModule):
                 error=f"Method {method!r} not allowed. Allowed: {allowed}",
             )
 
-        # Parse URL for domain/path validation
+        # Validate URL for SSRF protection and parse domain/path
         try:
-            _domain, _path, _raw_path = _parse_url(url)
+            _domain, _path, _raw_path = _validate_url(url)
         except ValueError as exc:
             return ToolResult(success=False, error=f"Invalid URL: {exc}")
 
@@ -409,7 +425,15 @@ class WebApiModule(BaseModule):
                     # Log security concern
                     logger.warning("Rejected invalid header name: %r", key_str)
                     continue
-                headers[key_str] = str(value)
+                value_str = str(value)
+                # Check for CRLF injection in header values
+                if _HEADER_CRLF_PATTERN.search(value_str):
+                    logger.warning(
+                        "Rejected header value with CRLF injection: %r",
+                        key_str,
+                    )
+                    continue
+                headers[key_str] = value_str
 
         # Add Content-Type if body is present and content_type specified
         content_type = params.get("content_type")
@@ -450,12 +474,14 @@ class WebApiModule(BaseModule):
         except httpx.ConnectError as exc:
             return ToolResult(success=False, error=f"Connection failed: {exc}")
         except httpx.HTTPStatusError as exc:
-            # Include response body even on error status
+            # Capture response body even on error status
+            error_body = await self._read_error_body(exc.response)
             response_data = self._build_response_data(
                 exc.response,
-                truncated=False,
-                bytes_read=0,
+                truncated=error_body[2],  # Truncated flag
+                bytes_read=error_body[1],  # Bytes read
             )
+            response_data["body"] = error_body[0]  # Body content
             response_data["error_status"] = exc.response.status_code
             return ToolResult(
                 success=False,
@@ -570,11 +596,29 @@ class WebApiModule(BaseModule):
 
         return result
 
+    async def _read_error_body(
+        self,
+        response: httpx.Response,
+    ) -> tuple[str, int, bool]:
+        """Read error response body with size limiting.
+
+        Args:
+            response: The httpx error response.
+
+        Returns:
+            Tuple of (body_text, bytes_read, truncated).
+        """
+        body_bytes, truncated = await self._read_response_with_limit(response)
+        total_bytes = len(body_bytes)
+
+        # Try to decode as text, fall back to base64 for binary
+        try:
+            body_text = body_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            body_text = base64.b64encode(body_bytes).decode("ascii")
+
+        return body_text, total_bytes, truncated
+
     async def close(self) -> None:
         """Close the underlying httpx client."""
         await self._client.aclose()
-
-    def __del__(self) -> None:
-        """Cleanup warning if client not properly closed."""
-        if hasattr(self, "_client") and self._client.is_closed is False:
-            logger.warning("WebApiModule not properly closed - httpx client still open")

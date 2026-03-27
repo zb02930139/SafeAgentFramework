@@ -72,7 +72,7 @@ class TestWebApiModuleDescriptors:
         }
 
     async def test_resolve_conditions_handles_ip_addresses(self) -> None:
-        """resolve_conditions() should handle IP addresses in URLs."""
+        """resolve_conditions() should block internal IP addresses."""
         module = WebApiModule()
 
         conditions = await module.resolve_conditions(
@@ -83,8 +83,9 @@ class TestWebApiModuleDescriptors:
             },
         )
 
-        assert conditions["web_api:Domain"] == "192.168.1.1:8080"
-        assert conditions["web_api:Path"] == "/api/status"
+        # Internal IPs blocked by SSRF protection - empty domain
+        assert conditions["web_api:Domain"] == ""
+        assert conditions["web_api:Method"] == "GET"
 
     async def test_resolve_conditions_handles_encoded_paths(self) -> None:
         """resolve_conditions() should decode percent-encoded paths."""
