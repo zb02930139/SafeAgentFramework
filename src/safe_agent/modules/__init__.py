@@ -14,6 +14,7 @@
 
 """SafeAgent modules package — public re-exports."""
 
+from safe_agent.modules.alerting import AlertingBackend, AlertingModule
 from safe_agent.modules.base import (
     BaseModule,
     ModuleDescriptor,
@@ -26,6 +27,8 @@ from safe_agent.modules.registry import ModuleRegistry
 from safe_agent.modules.vault import VaultBackend, VaultModule
 
 __all__ = [
+    "AlertingBackend",
+    "AlertingModule",
     "BaseModule",
     "DatabaseBackend",
     "DatabaseModule",
