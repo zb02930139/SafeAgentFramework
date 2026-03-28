@@ -598,18 +598,7 @@ class GitModule(BaseModule):
         """Push changes to remote."""
         args = ["push"]
 
-        remote = params.get("remote", "origin")
-        # Security: validate remote doesn't start with '-'
-        _validate_not_flag(str(remote), "remote")
-        args.append("--")
-        args.append(str(remote))
-
-        branch = params.get("branch")
-        if branch:
-            # Security: validate branch doesn't start with '-'
-            _validate_not_flag(str(branch), "branch")
-            args.append(str(branch))
-
+        # Add flags BEFORE -- separator
         force = params.get("force", False)
         if force:
             args.append("--force")
@@ -617,6 +606,21 @@ class GitModule(BaseModule):
         set_upstream = params.get("set_upstream", False)
         if set_upstream:
             args.append("--set-upstream")
+
+        # Add -- separator
+        args.append("--")
+
+        # Add positional args AFTER -- separator
+        remote = params.get("remote", "origin")
+        # Security: validate remote doesn't start with '-'
+        _validate_not_flag(str(remote), "remote")
+        args.append(str(remote))
+
+        branch = params.get("branch")
+        if branch:
+            # Security: validate branch doesn't start with '-'
+            _validate_not_flag(str(branch), "branch")
+            args.append(str(branch))
 
         result = await self._run_git(args)
 
