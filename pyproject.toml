@@ -52,6 +52,7 @@ web_api = "safe_agent.modules.web_api:WebApiModule"
 web_browse = "safe_agent.modules.web_browse:WebBrowseModule"
 remote_ssh = "safe_agent.modules.remote_ssh:RemoteSSHModule"
 audit = "safe_agent.modules.audit:AuditModule"
+scm = "safe_agent.modules.scm:SCMModule"
 
 [project.urls]
 Repository = "https://github.com/zbrooks442/SafeAgentFramework"
@@ -98,6 +99,7 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101",  # allow assert in tests
+    "S106",  # allow test mock tokens
     "S108",  # allow /tmp paths in test data
     "D102",  # don't require docstrings in test methods
     "D103",  # don't require docstrings in test functions
