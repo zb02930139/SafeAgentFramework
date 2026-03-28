@@ -108,6 +108,256 @@ class TestGitModuleResolveConditions:
         assert conditions["git:RepositoryUrl"] == "https://github.com/example/repo.git"
 
 
+class TestGitModuleSecurity:
+    """Tests for security features: flag injection protection, URL validation."""
+
+    async def test_clone_rejects_file_url(self, tmp_path: Path) -> None:
+        """Clone should reject file:// URLs to prevent local data leakage."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:clone",
+            {"url": "file:///etc/passwd"},
+        )
+
+        assert result.success is False
+        assert "file://" in result.error
+
+    async def test_clone_rejects_local_path(self, tmp_path: Path) -> None:
+        """Clone should reject local paths without URL scheme."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:clone",
+            {"url": "/local/repo"},
+        )
+
+        assert result.success is False
+        assert "Invalid URL scheme" in result.error
+
+    async def test_clone_rejects_flag_injection_in_branch(self, tmp_path: Path) -> None:
+        """Clone should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:clone",
+            {
+                "url": "https://github.com/example/repo.git",
+                "branch": "--upload-pack=evil",
+            },
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_clone_rejects_flag_injection_in_destination(
+        self, tmp_path: Path
+    ) -> None:
+        """Clone should reject destination starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:clone",
+            {
+                "url": "https://github.com/example/repo.git",
+                "destination": "--evil",
+            },
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_pull_rejects_flag_injection_in_remote(self, tmp_path: Path) -> None:
+        """Pull should reject remote names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:pull",
+            {"remote": "--upload-pack=evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_pull_rejects_flag_injection_in_branch(self, tmp_path: Path) -> None:
+        """Pull should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:pull",
+            {"branch": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_push_rejects_flag_injection_in_remote(self, tmp_path: Path) -> None:
+        """Push should reject remote names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:push",
+            {"remote": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_push_rejects_flag_injection_in_branch(self, tmp_path: Path) -> None:
+        """Push should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:push",
+            {"branch": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_branch_create_rejects_flag_injection(self, tmp_path: Path) -> None:
+        """Branch create should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:branch",
+            {"action": "create", "name": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_branch_delete_rejects_flag_injection(self, tmp_path: Path) -> None:
+        """Branch delete should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:branch",
+            {"action": "delete", "name": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_merge_rejects_flag_injection(self, tmp_path: Path) -> None:
+        """Merge should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:merge",
+            {"branch": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_tag_create_rejects_flag_injection(self, tmp_path: Path) -> None:
+        """Tag create should reject tag names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:tag",
+            {"action": "create", "name": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_tag_delete_rejects_flag_injection(self, tmp_path: Path) -> None:
+        """Tag delete should reject tag names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:tag",
+            {"action": "delete", "name": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_log_rejects_flag_injection_in_branch(self, tmp_path: Path) -> None:
+        """Log should reject branch names starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:log",
+            {"branch": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_log_rejects_flag_injection_in_path(self, tmp_path: Path) -> None:
+        """Log should reject paths starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:log",
+            {"path": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_diff_rejects_flag_injection_in_commit1(self, tmp_path: Path) -> None:
+        """Diff should reject commit references starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:diff",
+            {"commit1": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_diff_rejects_flag_injection_in_commit2(self, tmp_path: Path) -> None:
+        """Diff should reject commit references starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:diff",
+            {"commit2": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+    async def test_diff_rejects_flag_injection_in_path(self, tmp_path: Path) -> None:
+        """Diff should reject paths starting with '-'."""
+        module = GitModule(working_directory=tmp_path)
+
+        result = await module.execute(
+            "git:diff",
+            {"path": "--evil"},
+        )
+
+        assert result.success is False
+        assert "must not start with '-'" in result.error
+
+
+class TestGitModuleTimeoutEnforcement:
+    """Tests for max_timeout enforcement."""
+
+    def test_init_clamps_default_timeout_to_max(self, tmp_path: Path) -> None:
+        """__init__ should clamp default_timeout to max_timeout."""
+        module = GitModule(
+            working_directory=tmp_path,
+            default_timeout=1000.0,
+            max_timeout=300.0,
+        )
+        assert module.default_timeout == 300.0
+
+    def test_init_preserves_smaller_default_timeout(self, tmp_path: Path) -> None:
+        """__init__ should preserve default_timeout if already under max."""
+        module = GitModule(
+            working_directory=tmp_path,
+            default_timeout=30.0,
+            max_timeout=300.0,
+        )
+        assert module.default_timeout == 30.0
+
+
 class TestGitModuleClone:
     """Tests for git clone operation."""
 
@@ -893,7 +1143,7 @@ class TestGitModuleDiff:
         result = await module.execute("git:diff", {})
 
         assert result.success is True
-        assert "diff" in result.data
+        assert "output" in result.data
 
     @mock.patch.object(GitModule, "_run_git")
     async def test_diff_staged(
@@ -1183,6 +1433,34 @@ class TestGitModuleOutputParsing:
         assert status["files"][0]["status"] == "M "
         assert status["files"][0]["path"] == "modified.txt"
 
+    def test_parse_status_porcelain_handles_renames(self, tmp_path: Path) -> None:
+        """_parse_status should handle renames in porcelain format."""
+        module = GitModule(working_directory=tmp_path)
+
+        # Rename format: R100 old_name -> new_name
+        output = "R100 old_name -> new_name\n"
+        status = module._parse_status(output, porcelain=True)
+
+        assert "files" in status
+        assert len(status["files"]) == 1
+        assert status["files"][0]["status"] == "R1"
+        # Path should include the full rename info
+        assert "old_name" in status["files"][0]["path"]
+        assert "new_name" in status["files"][0]["path"]
+
+    def test_parse_status_porcelain_handles_copies(self, tmp_path: Path) -> None:
+        """_parse_status should handle copies in porcelain format."""
+        module = GitModule(working_directory=tmp_path)
+
+        # Copy format: C100 original -> copy
+        output = "C100 original.py -> copy.py\n"
+        status = module._parse_status(output, porcelain=True)
+
+        assert "files" in status
+        assert len(status["files"]) == 1
+        assert status["files"][0]["status"] == "C1"
+        assert "original.py" in status["files"][0]["path"]
+
     def test_parse_status_regular(self, tmp_path: Path) -> None:
         """_parse_status should return raw for regular format."""
         module = GitModule(working_directory=tmp_path)
@@ -1236,9 +1514,12 @@ class TestGitModuleWorkingDirectory:
 
         assert module._cwd() == str(tmp_path)
 
-    def test_cwd_default(self) -> None:
-        """_cwd should return cwd when working_directory is not set."""
+    def test_cwd_always_returns_string(self) -> None:
+        """_cwd should always return a valid string (never None)."""
         module = GitModule()
 
-        # When not explicitly set, defaults to cwd
-        assert module._cwd() == str(Path.cwd())
+        # working_directory is always set (defaults to cwd in __init__)
+        result = module._cwd()
+        assert result is not None
+        assert isinstance(result, str)
+        assert result == str(Path.cwd())

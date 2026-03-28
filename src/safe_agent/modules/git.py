@@ -43,6 +43,54 @@ MAX_TIMEOUT = 300.0
 # Maximum output size (1MB)
 MAX_OUTPUT_SIZE = 1024 * 1024
 
+# Allowed URL schemes for git clone (security: prevent file:// leakage)
+ALLOWED_URL_SCHEMES = ("https://", "http://", "ssh://", "git@")
+
+
+def _validate_not_flag(value: str, name: str) -> str:
+    """Validate that a value doesn't start with '-' (flag injection protection).
+
+    Args:
+        value: The value to validate.
+        name: The parameter name for error messages.
+
+    Returns:
+        The validated value.
+
+    Raises:
+        ValueError: If value starts with '-'.
+    """
+    if value.startswith("-"):
+        raise ValueError(f"Invalid {name}: must not start with '-'")
+    return value
+
+
+def _validate_url_scheme(url: str) -> str:
+    """Validate that URL uses an allowed scheme (security: prevent file:// leakage).
+
+    Args:
+        url: The URL to validate.
+
+    Returns:
+        The validated URL.
+
+    Raises:
+        ValueError: If URL uses a disallowed scheme.
+    """
+    # Allow relative/local paths that don't look like URLs
+    if "://" not in url and not url.startswith("git@"):
+        # This could be a local path - reject for security
+        raise ValueError(
+            f"Invalid URL scheme: must use one of {ALLOWED_URL_SCHEMES}. "
+            "Local paths and file:// URLs are not allowed."
+        )
+    if url.startswith("file://"):
+        raise ValueError(
+            "file:// URLs are not allowed for security reasons. "
+            f"Use one of {ALLOWED_URL_SCHEMES}."
+        )
+    return url
+
 
 class GitModule(BaseModule):
     """Provide controlled git operations with timeout and output limits.
@@ -84,7 +132,8 @@ class GitModule(BaseModule):
             raise ValueError("max_timeout must be > 0")
         if default_timeout <= 0:
             raise ValueError("default_timeout must be > 0")
-        self.default_timeout = default_timeout
+        # Enforce max_timeout as upper bound on default_timeout
+        self.default_timeout = min(default_timeout, max_timeout)
         self.max_timeout = max_timeout
         self.max_output_size = max_output_size
 
@@ -102,10 +151,22 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "url": {"type": "string"},
-                            "destination": {"type": "string"},
-                            "branch": {"type": "string"},
-                            "depth": {"type": "integer"},
+                            "url": {
+                                "type": "string",
+                                "description": "Repository URL to clone from.",
+                            },
+                            "destination": {
+                                "type": "string",
+                                "description": "Local directory to clone into.",
+                            },
+                            "branch": {
+                                "type": "string",
+                                "description": "Branch to clone.",
+                            },
+                            "depth": {
+                                "type": "integer",
+                                "description": "Create a shallow clone with depth.",
+                            },
                         },
                         "required": ["url"],
                         "additionalProperties": False,
@@ -120,9 +181,20 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "remote": {"type": "string", "default": "origin"},
-                            "branch": {"type": "string"},
-                            "rebase": {"type": "boolean", "default": False},
+                            "remote": {
+                                "type": "string",
+                                "default": "origin",
+                                "description": "Remote repository name.",
+                            },
+                            "branch": {
+                                "type": "string",
+                                "description": "Branch to pull.",
+                            },
+                            "rebase": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Rebase instead of merge.",
+                            },
                         },
                         "required": [],
                         "additionalProperties": False,
@@ -137,10 +209,25 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "remote": {"type": "string", "default": "origin"},
-                            "branch": {"type": "string"},
-                            "force": {"type": "boolean", "default": False},
-                            "set_upstream": {"type": "boolean", "default": False},
+                            "remote": {
+                                "type": "string",
+                                "default": "origin",
+                                "description": "Remote repository name.",
+                            },
+                            "branch": {
+                                "type": "string",
+                                "description": "Branch to push.",
+                            },
+                            "force": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Force push.",
+                            },
+                            "set_upstream": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Set upstream for the branch.",
+                            },
                         },
                         "required": [],
                         "additionalProperties": False,
@@ -155,9 +242,20 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "message": {"type": "string"},
-                            "allow_empty": {"type": "boolean", "default": False},
-                            "amend": {"type": "boolean", "default": False},
+                            "message": {
+                                "type": "string",
+                                "description": "Commit message.",
+                            },
+                            "allow_empty": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Allow empty commits.",
+                            },
+                            "amend": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Amend the previous commit.",
+                            },
                         },
                         "required": ["message"],
                         "additionalProperties": False,
@@ -175,9 +273,17 @@ class GitModule(BaseModule):
                             "action": {
                                 "type": "string",
                                 "enum": ["list", "create", "delete", "current"],
+                                "description": "Branch action to perform.",
                             },
-                            "name": {"type": "string"},
-                            "force": {"type": "boolean", "default": False},
+                            "name": {
+                                "type": "string",
+                                "description": "Branch name for create/delete.",
+                            },
+                            "force": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Force the operation.",
+                            },
                         },
                         "required": ["action"],
                         "additionalProperties": False,
@@ -192,9 +298,19 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "branch": {"type": "string"},
-                            "no_ff": {"type": "boolean", "default": False},
-                            "message": {"type": "string"},
+                            "branch": {
+                                "type": "string",
+                                "description": "Branch to merge.",
+                            },
+                            "no_ff": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Create a merge commit.",
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "Merge commit message.",
+                            },
                         },
                         "required": ["branch"],
                         "additionalProperties": False,
@@ -209,8 +325,16 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "porcelain": {"type": "boolean", "default": False},
-                            "short": {"type": "boolean", "default": False},
+                            "porcelain": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Output in machine-readable format.",
+                            },
+                            "short": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Output in short format.",
+                            },
                         },
                         "required": [],
                         "additionalProperties": False,
@@ -225,10 +349,23 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "max_count": {"type": "integer"},
-                            "oneline": {"type": "boolean", "default": False},
-                            "branch": {"type": "string"},
-                            "path": {"type": "string"},
+                            "max_count": {
+                                "type": "integer",
+                                "description": "Maximum number of commits to show.",
+                            },
+                            "oneline": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Output each commit on a single line.",
+                            },
+                            "branch": {
+                                "type": "string",
+                                "description": "Branch to show logs for.",
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "Filter commits by path.",
+                            },
                         },
                         "required": [],
                         "additionalProperties": False,
@@ -245,10 +382,23 @@ class GitModule(BaseModule):
                     parameters={
                         "type": "object",
                         "properties": {
-                            "commit1": {"type": "string"},
-                            "commit2": {"type": "string"},
-                            "path": {"type": "string"},
-                            "staged": {"type": "boolean", "default": False},
+                            "commit1": {
+                                "type": "string",
+                                "description": "First commit to compare.",
+                            },
+                            "commit2": {
+                                "type": "string",
+                                "description": "Second commit to compare.",
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "Filter diff by path.",
+                            },
+                            "staged": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Show staged changes.",
+                            },
                         },
                         "required": [],
                         "additionalProperties": False,
@@ -266,10 +416,20 @@ class GitModule(BaseModule):
                             "action": {
                                 "type": "string",
                                 "enum": ["list", "create", "delete"],
+                                "description": "Tag action to perform.",
                             },
-                            "name": {"type": "string"},
-                            "message": {"type": "string"},
-                            "commit": {"type": "string"},
+                            "name": {
+                                "type": "string",
+                                "description": "Tag name for create/delete.",
+                            },
+                            "message": {
+                                "type": "string",
+                                "description": "Tag message for annotated tags.",
+                            },
+                            "commit": {
+                                "type": "string",
+                                "description": "Commit to tag (defaults to HEAD).",
+                            },
                         },
                         "required": ["action"],
                         "additionalProperties": False,
@@ -337,26 +497,50 @@ class GitModule(BaseModule):
     # --- Internal implementation methods ---
 
     async def _clone(self, params: dict[str, Any]) -> ToolResult[dict[str, Any]]:
-        """Clone a repository."""
+        """Clone a repository.
+
+        Note: This operation runs outside the working directory since the
+        target repository may not exist yet. The cwd is set to the system's
+        temporary directory to avoid accidental operations in wrong locations.
+        """
         url = params.get("url")
         if not url:
             return ToolResult(success=False, error="url is required")
 
-        args = ["clone", str(url)]
+        # Security: validate URL scheme to prevent file:// leakage
+        try:
+            _validate_url_scheme(str(url))
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        args = ["clone", "--", str(url)]
 
         destination = params.get("destination")
         if destination:
+            # Security: validate destination doesn't start with '-'
+            try:
+                _validate_not_flag(str(destination), "destination")
+            except ValueError as exc:
+                return ToolResult(success=False, error=str(exc))
             args.append(str(destination))
 
         branch = params.get("branch")
         if branch:
-            args.extend(["--branch", str(branch)])
+            # Security: validate branch doesn't start with '-'
+            try:
+                _validate_not_flag(str(branch), "branch")
+            except ValueError as exc:
+                return ToolResult(success=False, error=str(exc))
+            # Insert --branch before the -- separator
+            args.insert(1, "--branch")
+            args.insert(2, str(branch))
 
         depth = params.get("depth")
         if depth:
-            args.extend(["--depth", str(depth)])
+            args.insert(1, "--depth")
+            args.insert(2, str(depth))
 
-        result = await self._run_git(args, cwd=None)  # Clone doesn't need cwd
+        result = await self._run_git(args, cwd=None)
 
         if not result["success"]:
             return ToolResult(
@@ -378,10 +562,15 @@ class GitModule(BaseModule):
         args = ["pull"]
 
         remote = params.get("remote", "origin")
+        # Security: validate remote doesn't start with '-'
+        _validate_not_flag(str(remote), "remote")
+        args.append("--")
         args.append(str(remote))
 
         branch = params.get("branch")
         if branch:
+            # Security: validate branch doesn't start with '-'
+            _validate_not_flag(str(branch), "branch")
             args.append(str(branch))
 
         rebase = params.get("rebase", False)
@@ -410,10 +599,15 @@ class GitModule(BaseModule):
         args = ["push"]
 
         remote = params.get("remote", "origin")
+        # Security: validate remote doesn't start with '-'
+        _validate_not_flag(str(remote), "remote")
+        args.append("--")
         args.append(str(remote))
 
         branch = params.get("branch")
         if branch:
+            # Security: validate branch doesn't start with '-'
+            _validate_not_flag(str(branch), "branch")
             args.append(str(branch))
 
         force = params.get("force", False)
@@ -539,7 +733,10 @@ class GitModule(BaseModule):
         if not name:
             return ToolResult(success=False, error="name is required for create action")
 
-        args = ["branch", str(name)]
+        # Security: validate branch name doesn't start with '-'
+        _validate_not_flag(str(name), "branch name")
+
+        args = ["branch", "--", str(name)]
 
         force = params.get("force", False)
         if force:
@@ -571,11 +768,14 @@ class GitModule(BaseModule):
         if not name:
             return ToolResult(success=False, error="name is required for delete action")
 
-        args = ["branch", "-d", str(name)]
+        # Security: validate branch name doesn't start with '-'
+        _validate_not_flag(str(name), "branch name")
 
         force = params.get("force", False)
         if force:
-            args = ["branch", "-D", str(name)]
+            args = ["branch", "-D", "--", str(name)]
+        else:
+            args = ["branch", "-d", "--", str(name)]
 
         result = await self._run_git(args)
 
@@ -600,7 +800,10 @@ class GitModule(BaseModule):
         if not branch:
             return ToolResult(success=False, error="branch is required")
 
-        args = ["merge", str(branch)]
+        # Security: validate branch doesn't start with '-'
+        _validate_not_flag(str(branch), "branch")
+
+        args = ["merge", "--", str(branch)]
 
         no_ff = params.get("no_ff", False)
         if no_ff:
@@ -669,10 +872,15 @@ class GitModule(BaseModule):
 
         branch = params.get("branch")
         if branch:
+            # Security: validate branch doesn't start with '-'
+            _validate_not_flag(str(branch), "branch")
+            args.append("--")
             args.append(str(branch))
 
         path = params.get("path")
         if path:
+            # Security: validate path doesn't start with '-'
+            _validate_not_flag(str(path), "path")
             args.extend(["--", str(path)])
 
         result = await self._run_git(args)
@@ -702,14 +910,20 @@ class GitModule(BaseModule):
 
         commit1 = params.get("commit1")
         if commit1:
+            # Security: validate commit doesn't start with '-'
+            _validate_not_flag(str(commit1), "commit1")
             args.append(str(commit1))
 
         commit2 = params.get("commit2")
         if commit2:
+            # Security: validate commit doesn't start with '-'
+            _validate_not_flag(str(commit2), "commit2")
             args.append(str(commit2))
 
         path = params.get("path")
         if path:
+            # Security: validate path doesn't start with '-'
+            _validate_not_flag(str(path), "path")
             args.extend(["--", str(path)])
 
         result = await self._run_git(args)
@@ -722,10 +936,7 @@ class GitModule(BaseModule):
 
         return ToolResult(
             success=True,
-            data={
-                "diff": result.get("stdout", ""),
-                "output": result.get("stdout", ""),
-            },
+            data={"output": result.get("stdout", "")},
         )
 
     async def _tag(self, params: dict[str, Any]) -> ToolResult[dict[str, Any]]:
@@ -772,7 +983,10 @@ class GitModule(BaseModule):
         if not name:
             return ToolResult(success=False, error="name is required for create action")
 
-        args = ["tag", str(name)]
+        # Security: validate tag name doesn't start with '-'
+        _validate_not_flag(str(name), "tag name")
+
+        args = ["tag", "--", str(name)]
 
         message = params.get("message")
         if message:
@@ -780,6 +994,8 @@ class GitModule(BaseModule):
 
         commit = params.get("commit")
         if commit:
+            # Security: validate commit doesn't start with '-'
+            _validate_not_flag(str(commit), "commit")
             args.append(str(commit))
 
         result = await self._run_git(args)
@@ -808,7 +1024,10 @@ class GitModule(BaseModule):
         if not name:
             return ToolResult(success=False, error="name is required for delete action")
 
-        args = ["tag", "-d", str(name)]
+        # Security: validate tag name doesn't start with '-'
+        _validate_not_flag(str(name), "tag name")
+
+        args = ["tag", "-d", "--", str(name)]
         result = await self._run_git(args)
 
         if not result["success"]:
@@ -837,13 +1056,18 @@ class GitModule(BaseModule):
 
         Args:
             args: Git arguments (without 'git' prefix).
-            cwd: Working directory for the command.
+            cwd: Working directory for the command. If None, uses the
+                configured working_directory.
 
         Returns:
             Dictionary with success, stdout, stderr, return_code, and error.
         """
         full_args = ["git", *args]
+        # When cwd is None, use the configured working directory
         effective_cwd = cwd if cwd is not None else self._cwd()
+
+        # Enforce max_timeout as upper bound on operation timeout
+        effective_timeout = min(self.default_timeout, self.max_timeout)
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -860,7 +1084,7 @@ class GitModule(BaseModule):
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=self.default_timeout,
+                timeout=effective_timeout,
             )
         except TimeoutError:
             self._safe_kill(process)
@@ -906,17 +1130,17 @@ class GitModule(BaseModule):
 
         return result
 
-    def _cwd(self) -> str | None:
-        """Return the configured working directory."""
-        if self.working_directory is None:
-            return None
+    def _cwd(self) -> str:
+        """Return the configured working directory.
+
+        Note: working_directory is always set (defaults to cwd in __init__),
+        so this method always returns a valid path string.
+        """
         return str(self.working_directory)
 
     def _working_directory_string(self) -> str:
         """Return the effective working directory as a string."""
-        if self.working_directory is not None:
-            return str(self.working_directory)
-        return str(Path.cwd())
+        return str(self.working_directory)
 
     def _safe_kill(self, process: asyncio.subprocess.Process) -> None:
         """Kill process safely, ignoring ProcessLookupError."""
@@ -958,6 +1182,7 @@ class GitModule(BaseModule):
         """Parse git status output into structured data."""
         if porcelain:
             # Porcelain format: XY PATH (XY are index and worktree status)
+            # For renames: R100 OLD NEW (score, original, new path)
             files: list[dict[str, str]] = []
             for line in output.split("\n"):
                 if not line:
@@ -965,13 +1190,26 @@ class GitModule(BaseModule):
                 # XY are two characters, followed by space(s) and path
                 xy = line[:2]
                 # Skip the space separator (can be 1 or more spaces)
-                path = line[2:].lstrip()
-                files.append(
-                    {
-                        "status": xy,
-                        "path": path,
-                    }
-                )
+                rest = line[2:].lstrip()
+
+                # Handle renames: R100 old_filename -> new_filename
+                # or C100 old_filename -> new_filename for copies
+                if xy[0] in ("R", "C"):
+                    # Rename/copy format includes "old -> new"
+                    files.append(
+                        {
+                            "status": xy,
+                            "path": rest,
+                        }
+                    )
+                else:
+                    # Regular status: XY PATH
+                    files.append(
+                        {
+                            "status": xy,
+                            "path": rest,
+                        }
+                    )
             return {"files": files}
 
         # Regular status format - return raw output
