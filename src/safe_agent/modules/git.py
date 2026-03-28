@@ -561,10 +561,18 @@ class GitModule(BaseModule):
         """Pull changes from remote."""
         args = ["pull"]
 
+        # Build flags BEFORE -- separator
+        rebase = params.get("rebase", False)
+        if rebase:
+            args.append("--rebase")
+
+        # Add -- separator
+        args.append("--")
+
+        # Add positional args AFTER --
         remote = params.get("remote", "origin")
         # Security: validate remote doesn't start with '-'
         _validate_not_flag(str(remote), "remote")
-        args.append("--")
         args.append(str(remote))
 
         branch = params.get("branch")
@@ -572,10 +580,6 @@ class GitModule(BaseModule):
             # Security: validate branch doesn't start with '-'
             _validate_not_flag(str(branch), "branch")
             args.append(str(branch))
-
-        rebase = params.get("rebase", False)
-        if rebase:
-            args.append("--rebase")
 
         result = await self._run_git(args)
 
@@ -866,6 +870,7 @@ class GitModule(BaseModule):
         """Show commit logs."""
         args = ["log"]
 
+        # Add flags BEFORE any -- separator
         max_count = params.get("max_count")
         if max_count:
             args.extend(["-n", str(max_count)])
@@ -874,18 +879,20 @@ class GitModule(BaseModule):
         if oneline:
             args.append("--oneline")
 
+        # Add branch (revision argument) BEFORE -- separator
         branch = params.get("branch")
         if branch:
             # Security: validate branch doesn't start with '-'
             _validate_not_flag(str(branch), "branch")
-            args.append("--")
             args.append(str(branch))
 
+        # Add path AFTER -- separator (only if path specified)
         path = params.get("path")
         if path:
             # Security: validate path doesn't start with '-'
             _validate_not_flag(str(path), "path")
-            args.extend(["--", str(path)])
+            args.append("--")
+            args.append(str(path))
 
         result = await self._run_git(args)
 
