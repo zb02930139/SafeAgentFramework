@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from abc import ABC, abstractmethod
 from typing import Any
 from urllib.parse import quote
@@ -287,6 +288,10 @@ class SCMProvider(ABC):
     async def list_webhooks(self, owner: str, repo: str) -> list[Webhook]:
         """List webhooks for a repository."""
 
+    @abstractmethod
+    async def close(self) -> None:
+        """Close the provider and release resources."""
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -296,8 +301,8 @@ class SCMProvider(ABC):
 async def _backoff_with_delay(
     attempt: int, base_delay: float, max_delay: float
 ) -> None:
-    """Calculate and sleep for exponential backoff."""
-    delay = min(base_delay * (2**attempt), max_delay)
+    """Calculate and sleep for exponential backoff with jitter."""
+    delay = min(base_delay * (2**attempt), max_delay) * (0.5 + random.random() * 0.5)  # noqa: S311
     await asyncio.sleep(delay)
 
 
@@ -334,6 +339,13 @@ class GitHubSCM(SCMProvider):
         """Return the provider name."""
         return "github"
 
+    def __repr__(self) -> str:
+        """Return string representation with masked token."""
+        masked_token = (
+            f"{self._token[:4]}...{self._token[-4:]}" if len(self._token) > 8 else "***"
+        )
+        return f"GitHubSCM(api_url={self._api_url!r}, token={masked_token!r})"
+
     def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
         if self._client is None:
@@ -354,7 +366,9 @@ class GitHubSCM(SCMProvider):
             await self._client.aclose()
             self._client = None
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request(
+        self, method: str, path: str, **kwargs: Any
+    ) -> dict[str, Any] | list[Any]:
         """Make an HTTP request with retry logic."""
         client = self._get_client()
         last_error: Exception | None = None
@@ -362,16 +376,6 @@ class GitHubSCM(SCMProvider):
         for attempt in range(self._max_retries + 1):
             try:
                 response = await client.request(method, path, **kwargs)
-
-                remaining = response.headers.get("x-ratelimit-remaining")
-                if remaining == "0":
-                    reset_at = int(response.headers.get("x-ratelimit-reset", 0))
-                    raise RateLimitError(
-                        provider=self.name,
-                        reset_at=reset_at,
-                        remaining=0,
-                        status_code=403,
-                    )
 
                 if response.status_code >= 500:
                     last_error = SCMError(
@@ -386,6 +390,17 @@ class GitHubSCM(SCMProvider):
                         )
                         continue
                     raise last_error
+
+                # Check rate limit BEFORE other error handling
+                remaining = response.headers.get("x-ratelimit-remaining")
+                if response.status_code == 429 and remaining == "0":
+                    reset_at = int(response.headers.get("x-ratelimit-reset", 0))
+                    raise RateLimitError(
+                        provider=self.name,
+                        reset_at=reset_at,
+                        remaining=0,
+                        status_code=429,
+                    )
 
                 if response.status_code >= 400:
                     error_data = response.json() if response.content else {}
@@ -705,6 +720,13 @@ class GitLabSCM(SCMProvider):
         """Return the provider name."""
         return "gitlab"
 
+    def __repr__(self) -> str:
+        """Return string representation with masked token."""
+        masked_token = (
+            f"{self._token[:4]}...{self._token[-4:]}" if len(self._token) > 8 else "***"
+        )
+        return f"GitLabSCM(api_url={self._api_url!r}, token={masked_token!r})"
+
     def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
         if self._client is None:
@@ -732,16 +754,6 @@ class GitLabSCM(SCMProvider):
             try:
                 response = await client.request(method, path, **kwargs)
 
-                remaining = response.headers.get("ratelimit-remaining")
-                if remaining == "0":
-                    reset_at = int(response.headers.get("ratelimit-reset", 0))
-                    raise RateLimitError(
-                        provider=self.name,
-                        reset_at=reset_at,
-                        remaining=0,
-                        status_code=429,
-                    )
-
                 if response.status_code >= 500:
                     last_error = SCMError(
                         message=f"Server error: {response.status_code}",
@@ -755,6 +767,17 @@ class GitLabSCM(SCMProvider):
                         )
                         continue
                     raise last_error
+
+                # Check rate limit BEFORE other error handling
+                remaining = response.headers.get("ratelimit-remaining")
+                if response.status_code == 429 and remaining == "0":
+                    reset_at = int(response.headers.get("ratelimit-reset", 0))
+                    raise RateLimitError(
+                        provider=self.name,
+                        reset_at=reset_at,
+                        remaining=0,
+                        status_code=429,
+                    )
 
                 if response.status_code >= 400:
                     error_data = response.json() if response.content else {}
@@ -918,14 +941,31 @@ class GitLabSCM(SCMProvider):
 
     def _parse_webhook(self, data: dict[str, Any]) -> Webhook:
         """Parse GitLab webhook data."""
+        # Reconstruct events list from boolean event flags
+        events: list[str] = []
+        if data.get("push_events"):
+            events.append("push")
+        if data.get("issues_events"):
+            events.append("issues")
+        if data.get("merge_requests_events"):
+            events.append("merge_requests")
+        if data.get("wiki_page_events"):
+            events.append("wiki")
+        if data.get("releases_events"):
+            events.append("releases")
+        if data.get("tag_push_events"):
+            events.append("tag_push")
+        if data.get("note_events"):
+            events.append("note")
+        if data.get("job_events"):
+            events.append("job")
+        if data.get("pipeline_events"):
+            events.append("pipeline")
+
         return Webhook(
             id=data.get("id", 0),
             url=data.get("url", ""),
-            events=(
-                data.get("push_events_branch_filter", [])
-                if data.get("push_events_branch_filter")
-                else []
-            ),
+            events=events,
             active=data.get("active", True),
             created_at=data.get("created_at"),
         )
@@ -1121,9 +1161,10 @@ class SCMRegistry:
 
     async def close_all(self) -> None:
         """Close all providers."""
-        for provider in self._providers.values():
-            if hasattr(provider, "close"):
-                await provider.close()
+        await asyncio.gather(
+            *[provider.close() for provider in self._providers.values()],
+            return_exceptions=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1509,10 +1550,12 @@ class SCMModule(BaseModule):
                 return ToolResult(success=True, data=repo.model_dump())
 
             if normalized_tool == "CreateFork":
+                namespace = params.get("namespace")
+                opts = {"namespace": namespace} if namespace else {}
                 fork = await provider.create_fork(
                     owner=params["owner"],
                     repo=params["repo"],
-                    namespace=params.get("namespace"),
+                    **opts,
                 )
                 return ToolResult(success=True, data=fork.model_dump())
 
@@ -1527,12 +1570,14 @@ class SCMModule(BaseModule):
                 return ToolResult(success=True, data=[b.model_dump() for b in branches])
 
             if normalized_tool == "CreateWebhook":
+                secret = params.get("secret")
+                opts = {"secret": secret} if secret else {}
                 webhook = await provider.create_webhook(
                     owner=params["owner"],
                     repo=params["repo"],
                     url=params["url"],
                     events=params["events"],
-                    secret=params.get("secret"),
+                    **opts,
                 )
                 return ToolResult(success=True, data=webhook.model_dump())
 

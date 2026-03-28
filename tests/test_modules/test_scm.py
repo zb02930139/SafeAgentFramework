@@ -705,10 +705,13 @@ class TestRateLimiting:
 
         mock_client = MagicMock()
         mock_response = MagicMock()
+        mock_response.status_code = 429
         mock_response.headers = {
             "x-ratelimit-remaining": "0",
             "x-ratelimit-reset": "1234567890",
         }
+        mock_response.content = b""
+        mock_response.json.return_value = []
         mock_client.request = AsyncMock(return_value=mock_response)
 
         provider._client = mock_client
@@ -725,10 +728,13 @@ class TestRateLimiting:
 
         mock_client = MagicMock()
         mock_response = MagicMock()
+        mock_response.status_code = 429
         mock_response.headers = {
             "ratelimit-remaining": "0",
             "ratelimit-reset": "1234567890",
         }
+        mock_response.content = b""
+        mock_response.json.return_value = []
         mock_client.request = AsyncMock(return_value=mock_response)
 
         provider._client = mock_client
