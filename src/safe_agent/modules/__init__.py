@@ -26,6 +26,7 @@ from safe_agent.modules.error_tracking import (
     ErrorTrackingBackend,
     ErrorTrackingModule,
 )
+from safe_agent.modules.git import GitModule
 from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.registry import ModuleRegistry
 from safe_agent.modules.vault import VaultBackend, VaultModule
@@ -38,6 +39,7 @@ __all__ = [
     "DatabaseModule",
     "ErrorTrackingBackend",
     "ErrorTrackingModule",
+    "GitModule",
     "MessagingBackend",
     "MessagingModule",
     "ModuleDescriptor",
