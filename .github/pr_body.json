@@ -1,0 +1,6 @@
+{
+  "title": "feat(database): implement Database module with pluggable adapter pattern",
+  "body": "Implements #80\n\n## Changes\n- Add DatabaseBackend protocol with query() and execute_statement() methods\n- Add DatabaseModule implementing BaseModule with backend injection via __init__\n- Security: blocks DDL (CREATE, DROP, ALTER, TRUNCATE) in both tools\n- Validates SQL types: query only accepts SELECT, execute_statement rejects CREATE/DROP/ALTER/TRUNCATE\n- Table name extraction from SQL for condition resolution (SELECT FROM, INSERT INTO, UPDATE, DELETE FROM)\n- Full test coverage with mock backend (67 tests, all passing)\n\n## Checklist\n- [x] DatabaseBackend protocol defined\n- [x] DatabaseModule with backend injection\n- [x] describe() returns correct ModuleDescriptor with 2 tools\n- [x] resolve_conditions() derives condition keys\n- [x] execute() delegates to backend\n- [x] All tests pass\n- [x] mypy passes\n- [x] ruff passes",
+  "head": "zb02930139:feat/s9-database-module",
+  "base": "main"
+}

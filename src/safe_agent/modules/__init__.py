@@ -20,12 +20,15 @@ from safe_agent.modules.base import (
     ToolDescriptor,
     ToolResult,
 )
+from safe_agent.modules.database import DatabaseBackend, DatabaseModule
 from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.registry import ModuleRegistry
 from safe_agent.modules.vault import VaultBackend, VaultModule
 
 __all__ = [
     "BaseModule",
+    "DatabaseBackend",
+    "DatabaseModule",
     "MessagingBackend",
     "MessagingModule",
     "ModuleDescriptor",
