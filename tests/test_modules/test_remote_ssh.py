@@ -275,7 +275,7 @@ class TestRemoteSSHModuleConnect:
             credentials={
                 "switch01": SSHCredential(
                     username="admin",
-                    password="secret123",  # noqa: S106
+                    password="secret123",
                 )
             }
         )
@@ -702,7 +702,7 @@ class TestRemoteSSHModuleSecurity:
             credentials={
                 "switch01": SSHCredential(
                     username="admin",
-                    password="super_secret_password_123",  # noqa: S106
+                    password="super_secret_password_123",
                 )
             }
         )
@@ -731,8 +731,8 @@ class TestRemoteSSHModuleSecurity:
             credentials={
                 "switch01": SSHCredential(
                     username="admin",
-                    password="secret123",  # noqa: S106
-                    key_passphrase="key_passphrase_secret",  # noqa: S106
+                    password="secret123",
+                    key_passphrase="key_passphrase_secret",
                 )
             }
         )

@@ -29,23 +29,53 @@ from safe_agent.modules.error_tracking import (
 from safe_agent.modules.git import GitModule
 from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.registry import ModuleRegistry
+from safe_agent.modules.scm import (
+    Branch,
+    Comment,
+    GitHubSCM,
+    GitLabSCM,
+    Issue,
+    PullRequest,
+    RateLimitError,
+    Repository,
+    SCMError,
+    SCMModule,
+    SCMProvider,
+    SCMRegistry,
+    User,
+    Webhook,
+)
 from safe_agent.modules.vault import VaultBackend, VaultModule
 
 __all__ = [
     "AlertingBackend",
     "AlertingModule",
     "BaseModule",
+    "Branch",
+    "Comment",
     "DatabaseBackend",
     "DatabaseModule",
     "ErrorTrackingBackend",
     "ErrorTrackingModule",
+    "GitHubSCM",
+    "GitLabSCM",
     "GitModule",
+    "Issue",
     "MessagingBackend",
     "MessagingModule",
     "ModuleDescriptor",
     "ModuleRegistry",
+    "PullRequest",
+    "RateLimitError",
+    "Repository",
+    "SCMError",
+    "SCMModule",
+    "SCMProvider",
+    "SCMRegistry",
     "ToolDescriptor",
     "ToolResult",
+    "User",
     "VaultBackend",
     "VaultModule",
+    "Webhook",
 ]
