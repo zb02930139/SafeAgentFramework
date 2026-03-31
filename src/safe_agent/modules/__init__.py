@@ -14,7 +14,6 @@
 
 """SafeAgent modules package — public re-exports."""
 
-from safe_agent.modules.alerting import AlertingBackend, AlertingModule
 from safe_agent.modules.base import (
     BaseModule,
     ModuleDescriptor,
@@ -22,12 +21,21 @@ from safe_agent.modules.base import (
     ToolResult,
 )
 from safe_agent.modules.database import DatabaseBackend, DatabaseModule
-from safe_agent.modules.error_tracking import (
-    ErrorTrackingBackend,
-    ErrorTrackingModule,
-)
 from safe_agent.modules.git import GitModule
 from safe_agent.modules.messaging import MessagingBackend, MessagingModule
+from safe_agent.modules.observability import (
+    AlertingBackend,
+    AlertingModule,
+    AuditModule,
+    DashboardBackend,
+    DashboardModule,
+    ErrorTrackingBackend,
+    ErrorTrackingModule,
+    LoggingBackend,
+    LoggingModule,
+    MetricsBackend,
+    MetricsModule,
+)
 from safe_agent.modules.registry import ModuleRegistry
 from safe_agent.modules.scm import (
     Branch,
@@ -50,9 +58,12 @@ from safe_agent.modules.vault import VaultBackend, VaultModule
 __all__ = [
     "AlertingBackend",
     "AlertingModule",
+    "AuditModule",
     "BaseModule",
     "Branch",
     "Comment",
+    "DashboardBackend",
+    "DashboardModule",
     "DatabaseBackend",
     "DatabaseModule",
     "ErrorTrackingBackend",
@@ -61,8 +72,12 @@ __all__ = [
     "GitLabSCM",
     "GitModule",
     "Issue",
+    "LoggingBackend",
+    "LoggingModule",
     "MessagingBackend",
     "MessagingModule",
+    "MetricsBackend",
+    "MetricsModule",
     "ModuleDescriptor",
     "ModuleRegistry",
     "PullRequest",

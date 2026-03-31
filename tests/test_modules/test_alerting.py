@@ -16,7 +16,7 @@
 
 from unittest.mock import AsyncMock
 
-from safe_agent.modules.alerting import AlertingModule
+from safe_agent.modules.observability.alerting import AlertingModule
 
 
 class MockAlertingBackend:

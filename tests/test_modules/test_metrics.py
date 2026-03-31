@@ -16,7 +16,7 @@
 
 from unittest.mock import AsyncMock
 
-from safe_agent.modules.metrics import MetricsModule
+from safe_agent.modules.observability.metrics import MetricsModule
 
 
 class MockMetricsBackend:

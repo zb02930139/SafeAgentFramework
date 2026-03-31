@@ -16,7 +16,7 @@
 
 from typing import Any
 
-from safe_agent.modules.error_tracking import (
+from safe_agent.modules.observability.error_tracking import (
     ErrorTrackingBackend,
     ErrorTrackingModule,
 )

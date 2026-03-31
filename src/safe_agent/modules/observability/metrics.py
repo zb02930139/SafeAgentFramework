@@ -32,6 +32,10 @@ from safe_agent.modules.base import (
     ToolResult,
 )
 
+# Note: This module is now at safe_agent.modules.observability.metrics
+# but imports from safe_agent.modules.base remain unchanged since base.py
+# is in the parent modules/ directory.
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["MetricsBackend", "MetricsModule"]

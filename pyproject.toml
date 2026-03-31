@@ -51,7 +51,7 @@ shell = "safe_agent.modules.shell:ShellModule"
 web_api = "safe_agent.modules.web_api:WebApiModule"
 web_browse = "safe_agent.modules.web_browse:WebBrowseModule"
 remote_ssh = "safe_agent.modules.remote_ssh:RemoteSSHModule"
-audit = "safe_agent.modules.audit:AuditModule"
+audit = "safe_agent.modules.observability.audit:AuditModule"
 scm = "safe_agent.modules.scm:SCMModule"
 
 [project.urls]

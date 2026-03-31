@@ -17,7 +17,7 @@
 
 from typing import Any
 
-from safe_agent.modules.dashboard import DashboardModule
+from safe_agent.modules.observability.dashboard import DashboardModule
 
 
 class MockDashboardBackend:
