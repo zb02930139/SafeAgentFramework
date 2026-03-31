@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from safe_agent.modules.audit import DEFAULT_MAX_RESULTS, AuditModule
+from safe_agent.modules.observability.audit import DEFAULT_MAX_RESULTS, AuditModule
 
 
 class TestAuditModuleDescriptor:

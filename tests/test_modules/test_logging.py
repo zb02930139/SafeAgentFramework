@@ -16,7 +16,7 @@
 
 from unittest.mock import AsyncMock
 
-from safe_agent.modules.logging import LoggingBackend, LoggingModule
+from safe_agent.modules.observability.logging import LoggingBackend, LoggingModule
 
 
 class MockLoggingBackend:
