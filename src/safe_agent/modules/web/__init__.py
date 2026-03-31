@@ -12,35 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Deprecated module path — use safe_agent.modules.web.browse instead."""
+"""Web modules sub-package for SafeAgent.
 
-import warnings
+This sub-package contains web-related modules:
+- api: Raw HTTP/API calls to external services
+- browse: Web page fetching and summarization
+- search: Pluggable web search interface
+"""
 
+from safe_agent.modules.web.api import WebApiModule
 from safe_agent.modules.web.browse import (
     DEFAULT_MAX_RESPONSE_SIZE,
     DEFAULT_TIMEOUT,
     MAX_SUMMARY_TEXT_LENGTH,
     MAX_TIMEOUT,
     WebBrowseModule,
-    _extract_content_type,
-    _extract_domain,
-    _html_to_text,
 )
-
-warnings.warn(
-    "safe_agent.modules.web_browse is deprecated; "
-    "use safe_agent.modules.web.browse instead",
-    DeprecationWarning,
-    stacklevel=2,
-)
+from safe_agent.modules.web.search import WebSearchBackend, WebSearchModule
 
 __all__ = [
     "DEFAULT_MAX_RESPONSE_SIZE",
     "DEFAULT_TIMEOUT",
     "MAX_SUMMARY_TEXT_LENGTH",
     "MAX_TIMEOUT",
+    "WebApiModule",
     "WebBrowseModule",
-    "_extract_content_type",
-    "_extract_domain",
-    "_html_to_text",
+    "WebSearchBackend",
+    "WebSearchModule",
 ]

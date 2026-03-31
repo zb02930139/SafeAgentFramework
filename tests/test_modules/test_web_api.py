@@ -21,7 +21,7 @@ import base64
 import httpx
 import pytest
 
-from safe_agent.modules.web_api import WebApiModule
+from safe_agent.modules.web.api import WebApiModule
 
 
 class TestWebApiModuleDescriptors:

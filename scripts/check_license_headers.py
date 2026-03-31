@@ -19,7 +19,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # Expected Apache 2.0 license header pattern (flexible on year attribution)
 LICENSE_HEADER_PATTERN = re.compile(
     r"^# Copyright \d{4}.*\n"
@@ -92,7 +91,10 @@ def main() -> int:
     print(f"Checked {len(checked_files)} Python files.")
 
     if missing_headers:
-        print(f"\n❌ {len(missing_headers)} file(s) missing valid Apache 2.0 license header:\n")
+        print(
+            f"\n❌ {len(missing_headers)} file(s) missing valid "
+            "Apache 2.0 license header:\n"
+        )
         for file_path in missing_headers:
             rel_path = file_path.relative_to(project_root)
             print(f"  - {rel_path}")

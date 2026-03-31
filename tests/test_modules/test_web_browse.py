@@ -22,7 +22,7 @@ from unittest import mock
 import httpx
 import pytest
 
-from safe_agent.modules.web_browse import (
+from safe_agent.modules.web.browse import (
     DEFAULT_MAX_RESPONSE_SIZE,
     DEFAULT_TIMEOUT,
     WebBrowseModule,

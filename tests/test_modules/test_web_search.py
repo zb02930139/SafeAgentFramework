@@ -16,7 +16,7 @@
 
 from typing import Any
 
-from safe_agent.modules.web_search import WebSearchBackend, WebSearchModule
+from safe_agent.modules.web.search import WebSearchBackend, WebSearchModule
 
 
 class MockWebSearchBackend:

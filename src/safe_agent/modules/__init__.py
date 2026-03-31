@@ -62,8 +62,22 @@ from safe_agent.modules.scm import (
 )
 from safe_agent.modules.security.remote_ssh import RemoteSSHModule, SSHCredential
 from safe_agent.modules.security.vault import VaultBackend, VaultModule
+from safe_agent.modules.web import (
+    DEFAULT_MAX_RESPONSE_SIZE,
+    DEFAULT_TIMEOUT,
+    MAX_SUMMARY_TEXT_LENGTH,
+    MAX_TIMEOUT,
+    WebApiModule,
+    WebBrowseModule,
+    WebSearchBackend,
+    WebSearchModule,
+)
 
 __all__ = [
+    "DEFAULT_MAX_RESPONSE_SIZE",
+    "DEFAULT_TIMEOUT",
+    "MAX_SUMMARY_TEXT_LENGTH",
+    "MAX_TIMEOUT",
     "AlertingBackend",
     "AlertingModule",
     "AuditModule",
@@ -106,5 +120,9 @@ __all__ = [
     "User",
     "VaultBackend",
     "VaultModule",
+    "WebApiModule",
+    "WebBrowseModule",
+    "WebSearchBackend",
+    "WebSearchModule",
     "Webhook",
 ]
