@@ -21,7 +21,7 @@ from unittest import mock
 
 import pytest
 
-from safe_agent.modules.git import GitModule
+from safe_agent.modules.coding.git import GitModule
 
 
 class TestGitModuleDescriptor:

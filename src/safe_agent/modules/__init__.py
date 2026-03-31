@@ -20,31 +20,8 @@ from safe_agent.modules.base import (
     ToolDescriptor,
     ToolResult,
 )
-from safe_agent.modules.communication import (
-    CalendarBackend,
-    CalendarModule,
-    EmailBackend,
-    EmailModule,
-    MessagingBackend,
-    MessagingModule,
-)
-from safe_agent.modules.filesystem.database import DatabaseBackend, DatabaseModule
-from safe_agent.modules.git import GitModule
-from safe_agent.modules.observability import (
-    AlertingBackend,
-    AlertingModule,
-    AuditModule,
-    DashboardBackend,
-    DashboardModule,
-    ErrorTrackingBackend,
-    ErrorTrackingModule,
-    LoggingBackend,
-    LoggingModule,
-    MetricsBackend,
-    MetricsModule,
-)
-from safe_agent.modules.registry import ModuleRegistry
-from safe_agent.modules.scm import (
+from safe_agent.modules.coding.git import GitModule
+from safe_agent.modules.coding.scm import (
     Branch,
     Comment,
     GitHubSCM,
@@ -60,6 +37,30 @@ from safe_agent.modules.scm import (
     User,
     Webhook,
 )
+from safe_agent.modules.coding.shell import ShellModule
+from safe_agent.modules.communication import (
+    CalendarBackend,
+    CalendarModule,
+    EmailBackend,
+    EmailModule,
+    MessagingBackend,
+    MessagingModule,
+)
+from safe_agent.modules.filesystem.database import DatabaseBackend, DatabaseModule
+from safe_agent.modules.observability import (
+    AlertingBackend,
+    AlertingModule,
+    AuditModule,
+    DashboardBackend,
+    DashboardModule,
+    ErrorTrackingBackend,
+    ErrorTrackingModule,
+    LoggingBackend,
+    LoggingModule,
+    MetricsBackend,
+    MetricsModule,
+)
+from safe_agent.modules.registry import ModuleRegistry
 from safe_agent.modules.security.remote_ssh import RemoteSSHModule, SSHCredential
 from safe_agent.modules.security.vault import VaultBackend, VaultModule
 from safe_agent.modules.web import (
@@ -115,6 +116,7 @@ __all__ = [
     "SCMProvider",
     "SCMRegistry",
     "SSHCredential",
+    "ShellModule",
     "ToolDescriptor",
     "ToolResult",
     "User",

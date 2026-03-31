@@ -47,12 +47,12 @@ dev = [
 
 [project.entry-points."safe_agent.modules"]
 filesystem = "safe_agent.modules.filesystem.filesystem:FilesystemModule"
-shell = "safe_agent.modules.shell:ShellModule"
+shell = "safe_agent.modules.coding.shell:ShellModule"
 web_api = "safe_agent.modules.web.api:WebApiModule"
 web_browse = "safe_agent.modules.web.browse:WebBrowseModule"
 remote_ssh = "safe_agent.modules.security.remote_ssh:RemoteSSHModule"
 audit = "safe_agent.modules.observability.audit:AuditModule"
-scm = "safe_agent.modules.scm:SCMModule"
+scm = "safe_agent.modules.coding.scm:SCMModule"
 
 [project.urls]
 Repository = "https://github.com/zbrooks442/SafeAgentFramework"
