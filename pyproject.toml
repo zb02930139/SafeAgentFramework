@@ -46,7 +46,7 @@ dev = [
 ]
 
 [project.entry-points."safe_agent.modules"]
-filesystem = "safe_agent.modules.filesystem:FilesystemModule"
+filesystem = "safe_agent.modules.filesystem.filesystem:FilesystemModule"
 shell = "safe_agent.modules.shell:ShellModule"
 web_api = "safe_agent.modules.web.api:WebApiModule"
 web_browse = "safe_agent.modules.web.browse:WebBrowseModule"

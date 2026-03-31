@@ -16,7 +16,7 @@
 
 from unittest.mock import AsyncMock
 
-from safe_agent.modules.database import DatabaseModule
+from safe_agent.modules.filesystem.database import DatabaseModule
 
 
 class MockDatabaseBackend:
@@ -452,7 +452,7 @@ class TestDatabaseModule:
     def test_module_descriptor_docstrings_mention_security(self) -> None:
         """Module should document security considerations."""
         # Verify security documentation in module docstring
-        from safe_agent.modules import database
+        from safe_agent.modules.filesystem import database
 
         docstring = database.__doc__ or ""
         lower_doc = docstring.lower()
@@ -460,7 +460,7 @@ class TestDatabaseModule:
 
     def test_backend_protocol_docstrings_mention_security(self) -> None:
         """Backend protocol should document security requirements."""
-        from safe_agent.modules.database import DatabaseBackend
+        from safe_agent.modules.filesystem.database import DatabaseBackend
 
         docstring = DatabaseBackend.__doc__ or ""
         # Check protocol docstring or method docstrings
@@ -865,7 +865,7 @@ class TestSecurityGuardrails:
         self,
     ) -> None:
         """Backslash-escaped single quotes should not end the string."""
-        from safe_agent.modules.database import _strip_string_literals
+        from safe_agent.modules.filesystem.database import _strip_string_literals
 
         # 'it\'s a CREATE' — the \' is an escape, string continues
         result = _strip_string_literals(r"SELECT * WHERE x = 'it\'s a CREATE'")
@@ -876,7 +876,7 @@ class TestSecurityGuardrails:
         self,
     ) -> None:
         """Backslash-escaped double quotes should not end the string."""
-        from safe_agent.modules.database import _strip_string_literals
+        from safe_agent.modules.filesystem.database import _strip_string_literals
 
         # "it\"s a DROP" — the \" is an escape, string continues
         result = _strip_string_literals(r'SELECT * WHERE x = "it\"s a DROP"')

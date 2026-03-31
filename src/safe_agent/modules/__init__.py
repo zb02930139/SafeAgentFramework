@@ -28,7 +28,7 @@ from safe_agent.modules.communication import (
     MessagingBackend,
     MessagingModule,
 )
-from safe_agent.modules.database import DatabaseBackend, DatabaseModule
+from safe_agent.modules.filesystem.database import DatabaseBackend, DatabaseModule
 from safe_agent.modules.git import GitModule
 from safe_agent.modules.observability import (
     AlertingBackend,
