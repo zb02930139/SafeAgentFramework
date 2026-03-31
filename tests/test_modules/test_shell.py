@@ -24,7 +24,7 @@ from unittest import mock
 
 import pytest
 
-from safe_agent.modules.shell import ShellModule
+from safe_agent.modules.coding.shell import ShellModule
 
 
 class TestShellModuleTimeoutCap:

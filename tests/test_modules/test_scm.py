@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from safe_agent.modules.scm import (
+from safe_agent.modules.coding.scm import (
     Branch,
     Comment,
     GitHubSCM,
