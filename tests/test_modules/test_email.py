@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from safe_agent.modules.base import ModuleDescriptor
-from safe_agent.modules.email import EmailBackend, EmailModule
+from safe_agent.modules.communication.email import EmailBackend, EmailModule
 
 
 class MockEmailBackend:

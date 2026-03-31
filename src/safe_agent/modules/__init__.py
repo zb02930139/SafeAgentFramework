@@ -20,9 +20,16 @@ from safe_agent.modules.base import (
     ToolDescriptor,
     ToolResult,
 )
+from safe_agent.modules.communication import (
+    CalendarBackend,
+    CalendarModule,
+    EmailBackend,
+    EmailModule,
+    MessagingBackend,
+    MessagingModule,
+)
 from safe_agent.modules.database import DatabaseBackend, DatabaseModule
 from safe_agent.modules.git import GitModule
-from safe_agent.modules.messaging import MessagingBackend, MessagingModule
 from safe_agent.modules.observability import (
     AlertingBackend,
     AlertingModule,
@@ -62,11 +69,15 @@ __all__ = [
     "AuditModule",
     "BaseModule",
     "Branch",
+    "CalendarBackend",
+    "CalendarModule",
     "Comment",
     "DashboardBackend",
     "DashboardModule",
     "DatabaseBackend",
     "DatabaseModule",
+    "EmailBackend",
+    "EmailModule",
     "ErrorTrackingBackend",
     "ErrorTrackingModule",
     "GitHubSCM",

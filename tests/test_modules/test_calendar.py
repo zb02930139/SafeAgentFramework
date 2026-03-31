@@ -16,7 +16,7 @@
 
 from typing import Any
 
-from safe_agent.modules.calendar import CalendarBackend, CalendarModule
+from safe_agent.modules.communication.calendar import CalendarBackend, CalendarModule
 
 
 class MockCalendarBackend:

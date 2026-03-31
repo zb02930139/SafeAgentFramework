@@ -16,7 +16,7 @@
 
 from typing import Any
 
-from safe_agent.modules.messaging import MessagingBackend, MessagingModule
+from safe_agent.modules.communication.messaging import MessagingBackend, MessagingModule
 
 
 class MockMessagingBackend:
