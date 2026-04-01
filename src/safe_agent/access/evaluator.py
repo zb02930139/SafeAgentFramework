@@ -214,9 +214,19 @@ class PolicyEvaluator:
     1. Default deny.
     2. Collect statements whose ``Action`` and ``Resource`` patterns match the
        request (using ``fnmatch``-style wildcards).
-    3. If any matching statement has ``Effect: Deny`` → ``DENIED_EXPLICIT``.
+    3. If any matching ``Deny`` statement has all conditions satisfied →
+       ``DENIED_EXPLICIT``. Note: conditions referencing absent context fields
+       evaluate to ``False``, meaning a conditional Deny will not fire if the
+       referenced key is missing from the request.
     4. If any matching ``Allow`` statement has all conditions satisfied → ``ALLOWED``.
     5. Otherwise → ``DENIED_IMPLICIT``.
+
+    Warning:
+        Conditional Deny statements can be bypassed by omitting the referenced
+        context key from the request (conditions evaluate to ``False`` when keys
+        are missing). If you need to deny when a key is absent, use an
+        ``IfExists``-style condition operator (not yet implemented) or ensure
+        the key is always present in requests.
 
     Example:
         >>> store = PolicyStore()
@@ -253,8 +263,12 @@ class PolicyEvaluator:
             if self._matches_action_resource(stmt, request):
                 matching.append(stmt)
 
-        # Step 3: Explicit Deny takes highest precedence
-        deny_stmts = [s for s in matching if s.effect == "Deny"]
+        # Step 3: Explicit Deny takes highest precedence (with condition evaluation)
+        deny_stmts = [
+            s
+            for s in matching
+            if s.effect == "Deny" and self._conditions_satisfied(s, request)
+        ]
         if deny_stmts:
             return AuthorizationResult(
                 decision=Decision.DENIED_EXPLICIT,

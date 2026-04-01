@@ -166,6 +166,8 @@ class ModuleRegistry:
             self._tool_map
         )
 
+        import inspect
+
         for ep in eps:
             module_class = ep.load()
             logger.info(
@@ -182,6 +184,31 @@ class ModuleRegistry:
                     f"BaseModule. Only trusted BaseModule subclasses "
                     f"may be registered."
                 )
+
+            # Skip modules that require constructor arguments (can't auto-instantiate)
+            sig = inspect.signature(module_class.__init__)
+            params = list(sig.parameters.values())
+            var_kinds = (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            )
+            required = [
+                p
+                for p in params
+                if (
+                    p.default is inspect.Parameter.empty
+                    and p.name != "self"
+                    and p.kind not in var_kinds
+                )
+            ]
+            if required:
+                logger.info(
+                    "safe_agent.modules: skipping '%s' (requires constructor args: %s)",
+                    ep.name,
+                    [p.name for p in required],
+                )
+                continue
+
             instance: BaseModule = module_class()
             descriptor = instance.describe()
             namespace = descriptor.namespace

@@ -178,6 +178,138 @@ class TestExplicitDeny:
         assert len(result.matched_statements) == 1
         assert result.matched_statements[0].effect == "Deny"
 
+    def test_conditional_deny_with_unmet_condition_should_not_deny(self):
+        """Deny with unmet condition should NOT deny (allow passes through)."""
+        store = make_store(
+            ALLOW_ALL,
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Action": ["agent:Delete"],
+                        "Resource": ["*"],
+                        "Condition": {"StringEquals": {"env": "prod"}},
+                    }
+                ],
+            },
+        )
+        ev = PolicyEvaluator(store)
+        # Request with env=dev should NOT be denied by the conditional deny
+        result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash", env="dev"))
+        assert result.decision == Decision.ALLOWED
+
+    def test_conditional_deny_with_met_condition_should_deny(self):
+        """Deny with met condition should deny."""
+        store = make_store(
+            ALLOW_ALL,
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Action": ["agent:Delete"],
+                        "Resource": ["*"],
+                        "Condition": {"StringEquals": {"env": "prod"}},
+                    }
+                ],
+            },
+        )
+        ev = PolicyEvaluator(store)
+        # Request with env=prod SHOULD be denied by the conditional deny
+        result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash", env="prod"))
+        assert result.decision == Decision.DENIED_EXPLICIT
+        assert len(result.matched_statements) == 1
+        assert result.matched_statements[0].effect == "Deny"
+
+    def test_unconditional_deny_still_works(self):
+        """Deny without conditions should deny unconditionally."""
+        store = make_store(
+            ALLOW_ALL,
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {"Effect": "Deny", "Action": ["agent:Delete"], "Resource": ["*"]}
+                ],
+            },
+        )
+        ev = PolicyEvaluator(store)
+        # Any request matching the deny should be denied regardless of context
+        result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash", env="dev"))
+        assert result.decision == Decision.DENIED_EXPLICIT
+        result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash", env="prod"))
+        assert result.decision == Decision.DENIED_EXPLICIT
+
+    def test_conditional_deny_with_missing_context_key_should_not_deny(self):
+        """Deny with condition referencing missing key should NOT deny.
+
+        Important security edge case: _conditions_satisfied() returns False when
+        a context key referenced in a condition is absent from the request. This
+        means a conditional Deny can be bypassed by omitting the context key.
+        """
+        store = make_store(
+            ALLOW_ALL,
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Action": ["agent:Delete"],
+                        "Resource": ["*"],
+                        "Condition": {"StringEquals": {"env": "prod"}},
+                    }
+                ],
+            },
+        )
+        ev = PolicyEvaluator(store)
+        # Request WITHOUT env key should NOT be denied (condition evaluates to False)
+        result = ev.evaluate(make_request("agent:Delete", "arn:tool:bash"))
+        assert result.decision == Decision.ALLOWED
+
+    def test_multiple_denies_mixed_conditions(self):
+        """Multiple deny statements with mixed condition satisfaction."""
+        store = make_store(
+            ALLOW_ALL,
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Action": ["agent:Delete"],
+                        "Resource": ["*"],
+                        "Condition": {"StringEquals": {"env": "prod"}},
+                    },
+                    {
+                        "Effect": "Deny",
+                        "Action": ["agent:Delete"],
+                        "Resource": ["*"],
+                        "Condition": {"StringEquals": {"region": "eu-west"}},
+                    },
+                ],
+            },
+        )
+        ev = PolicyEvaluator(store)
+        # Neither condition met → request allowed
+        result = ev.evaluate(
+            make_request("agent:Delete", "*", env="dev", region="us-east")
+        )
+        assert result.decision == Decision.ALLOWED
+        # First condition met → denied
+        result = ev.evaluate(
+            make_request("agent:Delete", "*", env="prod", region="us-east")
+        )
+        assert result.decision == Decision.DENIED_EXPLICIT
+        # Second condition met → denied
+        result = ev.evaluate(
+            make_request("agent:Delete", "*", env="dev", region="eu-west")
+        )
+        assert result.decision == Decision.DENIED_EXPLICIT
+        # Both conditions met → denied (explicit deny)
+        result = ev.evaluate(
+            make_request("agent:Delete", "*", env="prod", region="eu-west")
+        )
+        assert result.decision == Decision.DENIED_EXPLICIT
+
 
 class TestConditions:
     """Verify condition evaluation for all supported operators."""
