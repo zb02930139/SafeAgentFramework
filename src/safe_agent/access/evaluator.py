@@ -253,8 +253,12 @@ class PolicyEvaluator:
             if self._matches_action_resource(stmt, request):
                 matching.append(stmt)
 
-        # Step 3: Explicit Deny takes highest precedence
-        deny_stmts = [s for s in matching if s.effect == "Deny"]
+        # Step 3: Explicit Deny takes highest precedence (with condition evaluation)
+        deny_stmts = [
+            s
+            for s in matching
+            if s.effect == "Deny" and self._conditions_satisfied(s, request)
+        ]
         if deny_stmts:
             return AuthorizationResult(
                 decision=Decision.DENIED_EXPLICIT,
