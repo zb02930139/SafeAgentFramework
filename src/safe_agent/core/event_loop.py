@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from safe_agent.core.dispatcher import ToolDispatcher
 from safe_agent.core.llm import LLMClient, restore_tool_name, sanitize_tool_name
 from safe_agent.core.session import Session
 from safe_agent.modules.registry import ModuleRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -150,8 +153,15 @@ class EventLoop:
                                 tool_call.id,
                             )
                             content = json.dumps(result.model_dump())
-                        except Exception as exc:
-                            content = json.dumps({"error": str(exc)})
+                        except Exception:
+                            logger.exception(
+                                "Tool dispatch failed: %s (call_id=%s)",
+                                tool_call.name,
+                                tool_call.id,
+                            )
+                            content = json.dumps(
+                                {"error": f"Tool execution failed: {tool_call.name}"}
+                            )
 
                         tool_msg: dict = {
                             "role": "tool",

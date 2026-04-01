@@ -184,12 +184,40 @@ def test_tool_dispatch_failure_appends_error_tool_message(
     assert session.messages[2] == {
         "role": "tool",
         "name": "demo:echo",
-        "content": json.dumps({"error": "boom for demo:echo"}),
+        "content": json.dumps({"error": "Tool execution failed: demo:echo"}),
     }
     assert session.messages[3] == {
         "role": "assistant",
         "content": "tool failed cleanly",
     }
+
+
+def test_exception_details_not_leaked_to_llm(registry: ModuleRegistry, caplog):
+    """Exception details in tool results must not leak to LLM-facing messages."""
+    dispatcher = _FailingDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="demo:echo", params={"value": 1})]),
+            LLMResponse(content="done"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    with caplog.at_level("ERROR", logger="safe_agent.core.event_loop"):
+        asyncio.run(event_loop.process_turn(session, "run tool"))
+
+    # The error message visible to the LLM should include tool name
+    # but not exception details
+    tool_content = json.loads(session.messages[2]["content"])
+    assert tool_content == {"error": "Tool execution failed: demo:echo"}
+    # Exception message "boom for demo:echo" should NOT be in the LLM-facing error
+    assert "boom for" not in tool_content["error"]
+
+    # The actual exception should be logged (not sent to LLM)
+    assert "boom for demo:echo" in caplog.text
+    # Log should include tool name and call_id
+    assert "Tool dispatch failed: demo:echo" in caplog.text
 
 
 def test_turn_limit_enforced(registry: ModuleRegistry) -> None:
