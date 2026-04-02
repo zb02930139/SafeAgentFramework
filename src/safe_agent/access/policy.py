@@ -65,11 +65,15 @@ class PolicyStore:
             ValueError: If a file contains an unrecognised ``Version`` value
                 or fails Pydantic validation.
             RuntimeError: If the store has been frozen via :meth:`freeze`.
-            FileNotFoundError: If *directory* does not exist.
+            FileNotFoundError: If *directory* does not exist or is not a directory.
         """
         if self._frozen:
             raise RuntimeError(
                 "PolicyStore is frozen; no further policies may be added."
+            )
+        if not directory.is_dir():
+            raise FileNotFoundError(
+                f"Policy directory does not exist or is not a directory: {directory}"
             )
         # Stage all policies first; only commit if all succeed
         staged: list[Policy] = []

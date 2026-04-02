@@ -94,20 +94,16 @@ def mock_llm() -> MockLLM:
 
 
 def test_agent_constructor_with_missing_policy_dir(tmp_path: Path) -> None:
-    """Test constructor with missing policy directory."""
+    """Test constructor raises FileNotFoundError on missing policy directory."""
     missing_dir = tmp_path / "nonexistent"
 
-    # This should not raise an error since PolicyStore.load() doesn't check
-    # if directory exists - it just returns empty policy set
-    agent = Agent(
-        policy_dir=missing_dir,
-        llm_client=MockLLM(),
-        modules=[MockModule()],
-    )
-
-    assert agent.policy_store is not None
-    # Store should be empty since no JSON files were found
-    assert len(agent.policy_store.get_all_statements()) == 0
+    # This should now raise FileNotFoundError (fixes #132)
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        Agent(
+            policy_dir=missing_dir,
+            llm_client=MockLLM(),
+            modules=[MockModule()],
+        )
 
 
 def test_agent_constructor_with_empty_modules_list(

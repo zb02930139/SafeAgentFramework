@@ -101,9 +101,23 @@ class TestPolicyStoreLoad:
             store.load(tmp_path)
 
     def test_load_empty_directory(self, tmp_path):
+        """Empty directory should load successfully with no policies."""
         store = PolicyStore()
         store.load(tmp_path)
         assert store.get_all_statements() == []
+
+    def test_load_nonexistent_directory_raises(self):
+        """Non-existent directory should raise FileNotFoundError."""
+        store = PolicyStore()
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            store.load(Path("/nonexistent/path/to/policies"))
+
+    def test_load_file_not_directory_raises(self, tmp_path):
+        """Path pointing to a file (not directory) should raise FileNotFoundError."""
+        json_file = write_json(tmp_path, "not_a_dir.json", VALID_POLICY)
+        store = PolicyStore()
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            store.load(json_file)
 
     def test_load_after_freeze_raises(self, tmp_path):
         write_json(tmp_path, "policy.json", VALID_POLICY)
