@@ -53,7 +53,9 @@ def _trim_messages_preserve_pairs(session: Session) -> None:
         if msg.get("role") == "tool" and trim_index > 0:
             # Find the assistant message with tool_calls that precedes this tool
             prev_idx = trim_index - 1
-            while prev_idx >= 0 and session.messages[prev_idx].get("role") != "assistant":
+            while (
+                prev_idx >= 0 and session.messages[prev_idx].get("role") != "assistant"
+            ):
                 prev_idx -= 1
             if prev_idx >= 0 and session.messages[prev_idx].get("tool_calls"):
                 # This tool belongs to an assistant tool_calls, include the assistant
@@ -238,10 +240,10 @@ class EventLoop:
                     )
                     break
 
-            # Apply trimming once at the end of the turn, preserving tool call/result pairs
+            # Apply trimming once at the end of the turn, preserving
+            # tool call/result pairs
             _trim_messages_preserve_pairs(session)
 
             # Return the last assistant message content
             last_msg = session.messages[-1]
             return last_msg.get("content", "")
-
