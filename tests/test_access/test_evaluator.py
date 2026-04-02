@@ -1037,3 +1037,184 @@ class TestInfNanGuard:
         ev = PolicyEvaluator(store)
         result = ev.evaluate(make_request("agent:Run", "*", count=42))
         assert result.decision == Decision.ALLOWED
+
+
+class TestInvalidNumericConditionValues:
+    """Verify that invalid numeric values in condition lists are gracefully skipped.
+
+    Tests for issue #131: Invalid numeric condition value should not poison
+    entire OR list. The values list in numeric conditions is treated as OR -
+    any match should satisfy. Invalid (un-parseable) values should be skipped,
+    not cause immediate failure.
+    """
+
+    def test_numeric_equals_mixed_valid_invalid_values_matches_valid(self):
+        """NumericEquals with mixed valid/invalid values should still match valid ones.
+
+        Per issue #131: [25, "bad", 30] with context=30 should match (skip "bad").
+        """
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"age": [25, "bad", 30]}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Should match the 30 value (skipping "bad")
+        result = ev.evaluate(make_request("agent:Run", "*", age=30))
+        assert result.decision == Decision.ALLOWED
+
+    def test_numeric_equals_all_invalid_values_fails_condition(self):
+        """NumericEquals with all-invalid values list should fail the condition."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {
+                            "NumericEquals": {"age": ["bad", "worse", "ugly"]}
+                        },
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # No valid values to match against
+        result = ev.evaluate(make_request("agent:Run", "*", age=30))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_numeric_less_than_mixed_valid_invalid_values(self):
+        """NumericLessThan with mixed values should skip invalid values."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {
+                            "NumericLessThan": {"count": ["invalid", 100, "bad"]}
+                        },
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # count=50 < 100 (should match after skipping "invalid")
+        result = ev.evaluate(make_request("agent:Run", "*", count=50))
+        assert result.decision == Decision.ALLOWED
+
+    def test_numeric_greater_than_mixed_valid_invalid_values(self):
+        """NumericGreaterThan with mixed values should skip invalid values."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {
+                            "NumericGreaterThan": {"score": ["bad", 50, "worse"]}
+                        },
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # score=75 > 50 (should match after skipping "bad")
+        result = ev.evaluate(make_request("agent:Run", "*", score=75))
+        assert result.decision == Decision.ALLOWED
+
+    def test_invalid_value_followed_by_valid_match(self):
+        """Invalid value at start of list should not prevent later valid match."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"level": ["not-a-number", 5]}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Should match level=5 after skipping "not-a-number"
+        result = ev.evaluate(make_request("agent:Run", "*", level=5))
+        assert result.decision == Decision.ALLOWED
+
+    def test_valid_value_before_invalid_still_matches(self):
+        """Valid value before invalid should still match."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": [25, "invalid", 30]}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # count=25 should match before even reaching "invalid"
+        result = ev.evaluate(make_request("agent:Run", "*", count=25))
+        assert result.decision == Decision.ALLOWED
+
+    def test_inf_nan_in_condition_values_list_are_skipped(self):
+        """inf/nan in condition values list should be skipped."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": ["inf", 42, "nan"]}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Should match 42 after skipping inf and nan
+        result = ev.evaluate(make_request("agent:Run", "*", count=42))
+        assert result.decision == Decision.ALLOWED
+
+    def test_mixed_invalid_types_in_values_list(self):
+        """Various non-numeric types in values list should all be skipped."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {
+                            "NumericEquals": {"id": [None, "string", [], 100]}
+                        },
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Should match 100 after skipping None, string, and list
+        result = ev.evaluate(make_request("agent:Run", "*", id=100))
+        assert result.decision == Decision.ALLOWED
