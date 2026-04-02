@@ -246,4 +246,4 @@ class EventLoop:
 
             # Return the last assistant message content
             last_msg = session.messages[-1]
-            return last_msg.get("content", "")
+            return str(last_msg.get("content", ""))
