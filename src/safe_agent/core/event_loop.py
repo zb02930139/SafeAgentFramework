@@ -120,13 +120,15 @@ class EventLoop:
                     tool_definitions,
                 )
 
-                if response.content is not None:
-                    session.messages.append(
-                        {"role": "assistant", "content": response.content}
-                    )
-                    return response.content
-
                 if response.tool_calls:
+                    # Process tool calls first. Also record content if present,
+                    # since LLM can return both content and tool_calls.
+                    if response.content is not None:
+                        # Store content first, then append tool_calls to preserve
+                        # the full assistant response in message history
+                        session.messages.append(
+                            {"role": "assistant", "content": response.content}
+                        )
                     # Restore canonical colon-style names before storing in the
                     # session transcript and dispatching.
                     restored_calls = [
@@ -172,6 +174,13 @@ class EventLoop:
                             tool_msg["tool_call_id"] = tool_call.id
                         session.messages.append(tool_msg)
 
+                elif response.content is not None:
+                    # Content-only response (no tool_calls) - return immediately
+                    session.messages.append(
+                        {"role": "assistant", "content": response.content}
+                    )
+                    return response.content
+
                 turn_count += 1
                 if turn_count >= self._max_turns:
                     final_response = await self._llm_client.chat(
@@ -182,7 +191,3 @@ class EventLoop:
                         {"role": "assistant", "content": final_text}
                     )
                     return final_text
-
-                if not response.tool_calls:
-                    session.messages.append({"role": "assistant", "content": ""})
-                    return ""

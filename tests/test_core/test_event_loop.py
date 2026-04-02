@@ -115,6 +115,47 @@ class _StaticToolModule(BaseModule):
         return ToolResult(success=True, data=params)
 
 
+def test_content_and_tool_calls_dispatched_both(registry: ModuleRegistry) -> None:
+    """When LLM returns both content and tool_calls, both are processed."""
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(
+                content="Let me look that up for you.",
+                tool_calls=[ToolCall(name="demo:echo", params={"query": "hello"})],
+            ),
+            LLMResponse(content="Here is the result."),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    result = asyncio.run(event_loop.process_turn(session, "greet"))
+
+    # Result should come from second LLM response after tool execution
+    assert result == "Here is the result."
+    # Dispatcher should have been called for the tool
+    assert len(dispatcher.calls) == 1
+    assert dispatcher.calls[0] == ("demo:echo", {"query": "hello"}, "session-1", None)
+
+    # Verify message history includes both content and tool_calls
+    # Message at index 0: user message
+    # Message at index 1: assistant content message
+    assert session.messages[0] == {"role": "user", "content": "greet"}
+    assert session.messages[1] == {
+        "role": "assistant",
+        "content": "Let me look that up for you.",
+    }
+    # Message at index 2: assistant tool_calls message
+    assert session.messages[2]["role"] == "assistant"
+    assert session.messages[2]["content"] is None
+    assert session.messages[2]["tool_calls"][0]["name"] == "demo:echo"
+    assert session.messages[2]["tool_calls"][0]["params"] == {"query": "hello"}
+    # Message at index 3: tool result
+    assert session.messages[3]["role"] == "tool"
+    assert session.messages[3]["name"] == "demo:echo"
+
+
 def test_text_response_immediate(registry: ModuleRegistry) -> None:
     dispatcher = _FakeDispatcher()
     llm = _FakeLLM([LLMResponse(content="done")])
