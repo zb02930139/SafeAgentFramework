@@ -188,7 +188,7 @@ def _evaluate_condition_block(
                 for v in values_list:
                     num_v = _safe_float(v)
                     if num_v is None:
-                        return False
+                        continue  # Skip invalid values, check remaining OR candidates
                     if _match_numeric_op(operator, num_ctx, num_v):
                         matched_any = True
                         break
