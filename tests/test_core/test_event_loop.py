@@ -319,11 +319,12 @@ def test_release_session_removes_lock(registry: ModuleRegistry) -> None:
 
     asyncio.run(event_loop.process_turn(session, "hello"))
 
-    assert session.id in event_loop._session_locks
+    # process_turn populates _session_async_locks (asyncio.Lock for turn serialisation)
+    assert session.id in event_loop._session_async_locks
 
     event_loop.release_session(session.id)
 
-    assert session.id not in event_loop._session_locks
+    assert session.id not in event_loop._session_async_locks
 
 
 # ---------------------------------------------------------------------------

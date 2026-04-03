@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 
 from safe_agent.core.dispatcher import ToolDispatcher
 from safe_agent.core.llm import LLMClient, restore_tool_name, sanitize_tool_name
@@ -161,7 +162,14 @@ class EventLoop:
         self._llm_client = llm_client
         self._registry = registry
         self._max_turns = max_turns
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        # asyncio.Lock: serialises concurrent async turns on the same session.
+        self._session_async_locks: dict[str, asyncio.Lock] = {}
+        # threading.RLock: serialises session.messages mutations with threads
+        # that call SessionManager.add_message() concurrently.  Both this class
+        # and SessionManager.add_message() acquire session._message_lock (a
+        # per-Session threading.RLock) before reading or writing session.messages,
+        # so no lock object needs to be shared between the two components.
+        self._session_locks: dict[str, threading.RLock] = {}
 
     @property
     def max_turns(self) -> int:
@@ -170,6 +178,7 @@ class EventLoop:
 
     def release_session(self, session_id: str) -> None:
         """Release any per-session resources once a session is finished."""
+        self._session_async_locks.pop(session_id, None)
         self._session_locks.pop(session_id, None)
 
     async def process_turn(self, session: Session, user_message: str) -> str:
@@ -179,10 +188,18 @@ class EventLoop:
         transcript, dispatches any model-requested tools, and enforces a hard
         turn limit by making a final text-only model call when necessary.
         """
-        lock = self._session_locks.setdefault(session.id, asyncio.Lock())
+        # asyncio.Lock serialises concurrent async turns on the same session;
+        # it ensures only one process_turn coroutine is active per session.
+        async_lock = self._session_async_locks.setdefault(session.id, asyncio.Lock())
+        # threading.RLock (stored per-session on the Session object) guards
+        # session.messages against concurrent access from OS threads calling
+        # SessionManager.add_message().  We acquire it around every read/write
+        # of session.messages so mutations cannot interleave with thread calls.
+        msg_lock: threading.RLock = session._message_lock  # type: ignore[attr-defined]
 
-        async with lock:
-            session.messages.append({"role": "user", "content": user_message})
+        async with async_lock:
+            with msg_lock:
+                session.messages.append({"role": "user", "content": user_message})
 
             # Build tool definitions with sanitized names for LLM provider
             # compatibility (some providers forbid colons in function names).
@@ -194,8 +211,11 @@ class EventLoop:
             turn_count = 0
             while True:
                 # Pass sanitized tool names and a sanitized view of any prior
-                # tool_calls entries in the session history.
-                sanitized_messages = _sanitize_messages(session.messages)
+                # tool_calls entries in the session history.  Hold msg_lock only
+                # for the synchronous snapshot; release before the async LLM call
+                # so the event loop is not blocked while waiting for I/O.
+                with msg_lock:
+                    sanitized_messages = _sanitize_messages(session.messages)
                 response = await self._llm_client.chat(
                     sanitized_messages,
                     tool_definitions,
@@ -204,12 +224,6 @@ class EventLoop:
                 if response.tool_calls:
                     # Process tool calls first. Also record content if present,
                     # since LLM can return both content and tool_calls.
-                    if response.content is not None:
-                        # Store content first, then append tool_calls to preserve
-                        # the full assistant response in message history
-                        session.messages.append(
-                            {"role": "assistant", "content": response.content}
-                        )
                     # Restore canonical colon-style names before storing in the
                     # session transcript and dispatching.
                     restored_calls = [
@@ -218,15 +232,22 @@ class EventLoop:
                         )
                         for tool_call in response.tool_calls
                     ]
-                    session.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [
-                                tool_call.model_dump() for tool_call in restored_calls
-                            ],
-                        }
-                    )
+                    with msg_lock:
+                        if response.content is not None:
+                            # Store content first, then append tool_calls to preserve
+                            # the full assistant response in message history
+                            session.messages.append(
+                                {"role": "assistant", "content": response.content}
+                            )
+                        session.messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    tool_call.model_dump() for tool_call in restored_calls
+                                ],
+                            }
+                        )
                     for tool_call in restored_calls:
                         try:
                             result = await self._dispatcher.dispatch(
@@ -253,30 +274,37 @@ class EventLoop:
                         }
                         if tool_call.id is not None:
                             tool_msg["tool_call_id"] = tool_call.id
-                        session.messages.append(tool_msg)
+                        with msg_lock:
+                            session.messages.append(tool_msg)
 
                 elif response.content is not None:
                     # Content-only response (no tool_calls) - append and break loop
-                    session.messages.append(
-                        {"role": "assistant", "content": response.content}
-                    )
+                    with msg_lock:
+                        session.messages.append(
+                            {"role": "assistant", "content": response.content}
+                        )
                     break
 
                 turn_count += 1
                 if turn_count >= self._max_turns:
+                    with msg_lock:
+                        sanitized_for_final = _sanitize_messages(session.messages)
                     final_response = await self._llm_client.chat(
-                        _sanitize_messages(session.messages), []
+                        sanitized_for_final, []
                     )
                     final_text = final_response.content or ""
-                    session.messages.append(
-                        {"role": "assistant", "content": final_text}
-                    )
+                    with msg_lock:
+                        session.messages.append(
+                            {"role": "assistant", "content": final_text}
+                        )
                     break
 
             # Apply trimming once at the end of the turn, preserving
             # tool call/result pairs
-            _trim_messages_preserve_pairs(session)
+            with msg_lock:
+                _trim_messages_preserve_pairs(session)
 
             # Return the last assistant message content
-            last_msg = session.messages[-1]
-            return str(last_msg.get("content", ""))
+            with msg_lock:
+                last_msg = session.messages[-1]
+                return str(last_msg.get("content", ""))

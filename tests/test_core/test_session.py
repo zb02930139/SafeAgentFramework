@@ -216,22 +216,22 @@ class TestMaxMessages:
         manager = SessionManager(max_messages=50)
         assert manager.max_messages == 50
 
-    async def test_add_message(self) -> None:
+    def test_add_message(self) -> None:
         manager = SessionManager()
         session = manager.create()
 
-        await manager.add_message(session.id, {"role": "user", "content": "hello"})
+        manager.add_message(session.id, {"role": "user", "content": "hello"})
 
         assert len(session.messages) == 1
         assert session.messages[0] == {"role": "user", "content": "hello"}
 
-    async def test_message_trimming(self) -> None:
+    def test_message_trimming(self) -> None:
         manager = SessionManager(max_messages=3)
         session = manager.create()
 
         # Add 5 messages
         for i in range(5):
-            await manager.add_message(session.id, {"role": "user", "content": str(i)})
+            manager.add_message(session.id, {"role": "user", "content": str(i)})
 
         # Should keep only last 3
         assert len(session.messages) == 3
@@ -239,23 +239,23 @@ class TestMaxMessages:
         assert session.messages[1]["content"] == "3"
         assert session.messages[2]["content"] == "4"
 
-    async def test_add_message_no_trim(self) -> None:
+    def test_add_message_no_trim(self) -> None:
         manager = SessionManager(max_messages=3)
         session = manager.create()
 
         # Add 5 messages without trimming
         for i in range(5):
-            await manager.add_message(
+            manager.add_message(
                 session.id, {"role": "user", "content": str(i)}, trim=False
             )
 
         # Should keep all
         assert len(session.messages) == 5
 
-    async def test_add_message_returns_none_for_unknown_session(self) -> None:
+    def test_add_message_returns_none_for_unknown_session(self) -> None:
         manager = SessionManager()
 
-        result = await manager.add_message(
+        result = manager.add_message(
             "nonexistent", {"role": "user", "content": "test"}
         )
 
@@ -379,34 +379,83 @@ class TestThreadSafety:
         assert len(errors) == 0
 
     def test_concurrent_add_message(self) -> None:
-        import asyncio
+        """Concurrent threads calling add_message must not corrupt messages.
 
-        manager = SessionManager(max_messages=100)
+        This test exercises the shared ``threading.RLock`` path that protects
+        ``session.messages`` from concurrent OS-thread access — the scenario
+        that previously relied on the incorrect asyncio.Lock approach.
+        """
+        manager = SessionManager(max_messages=1000)
         session = manager.create()
-        errors = []
+        errors: list[Exception] = []
 
         def add_messages() -> None:
             try:
-                # Run async add_message in a new event loop for each thread
-                async def run_adds() -> None:
-                    for i in range(50):
-                        await manager.add_message(
-                            session.id, {"role": "user", "content": str(i)}
-                        )
-
-                asyncio.run(run_adds())
+                for i in range(100):
+                    manager.add_message(session.id, {"role": "user", "content": str(i)})
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=add_messages) for _ in range(4)]
+        threads = [threading.Thread(target=add_messages) for _ in range(8)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
         assert len(errors) == 0
-        # Should have been trimmed to max_messages
-        assert len(session.messages) <= 100
+        # 8 threads * 100 messages each = 800 total, all within max_messages=1000
+        assert len(session.messages) == 800
+
+    def test_concurrent_add_message_and_event_loop_interleave(self) -> None:
+        """Threads calling add_message must not race with EventLoop message reads.
+
+        Simulates the real scenario: one thread is an "EventLoop" reading
+        session.messages while other threads inject messages via add_message.
+        Both paths must acquire session._message_lock; no corruption allowed.
+        """
+        import asyncio
+
+        manager = SessionManager(max_messages=10_000)
+        session = manager.create()
+        errors: list[Exception] = []
+        stop_event = threading.Event()
+
+        def thread_add_messages() -> None:
+            """Simulate a background thread calling add_message."""
+            try:
+                for i in range(500):
+                    manager.add_message(
+                        session.id, {"role": "tool", "content": str(i)}
+                    )
+            except Exception as e:
+                errors.append(e)
+
+        async def simulate_event_loop_reads() -> None:
+            """Simulate EventLoop acquiring session._message_lock to read messages."""
+            for _ in range(500):
+                with session._message_lock:  # type: ignore[attr-defined]
+                    _ = list(session.messages)  # snapshot under lock
+                await asyncio.sleep(0)  # yield to event loop
+
+        def run_event_loop_sim() -> None:
+            try:
+                asyncio.run(simulate_event_loop_reads())
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=thread_add_messages) for _ in range(4)
+        ] + [threading.Thread(target=run_event_loop_sim)]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+        # All 4 * 500 = 2000 thread messages must be present
+        tool_messages = [m for m in session.messages if m["role"] == "tool"]
+        assert len(tool_messages) == 2000
 
 
 class TestInputValidation:
