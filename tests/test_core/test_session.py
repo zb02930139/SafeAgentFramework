@@ -216,22 +216,22 @@ class TestMaxMessages:
         manager = SessionManager(max_messages=50)
         assert manager.max_messages == 50
 
-    def test_add_message(self) -> None:
+    async def test_add_message(self) -> None:
         manager = SessionManager()
         session = manager.create()
 
-        manager.add_message(session.id, {"role": "user", "content": "hello"})
+        await manager.add_message(session.id, {"role": "user", "content": "hello"})
 
         assert len(session.messages) == 1
         assert session.messages[0] == {"role": "user", "content": "hello"}
 
-    def test_message_trimming(self) -> None:
+    async def test_message_trimming(self) -> None:
         manager = SessionManager(max_messages=3)
         session = manager.create()
 
         # Add 5 messages
         for i in range(5):
-            manager.add_message(session.id, {"role": "user", "content": str(i)})
+            await manager.add_message(session.id, {"role": "user", "content": str(i)})
 
         # Should keep only last 3
         assert len(session.messages) == 3
@@ -239,23 +239,25 @@ class TestMaxMessages:
         assert session.messages[1]["content"] == "3"
         assert session.messages[2]["content"] == "4"
 
-    def test_add_message_no_trim(self) -> None:
+    async def test_add_message_no_trim(self) -> None:
         manager = SessionManager(max_messages=3)
         session = manager.create()
 
         # Add 5 messages without trimming
         for i in range(5):
-            manager.add_message(
+            await manager.add_message(
                 session.id, {"role": "user", "content": str(i)}, trim=False
             )
 
         # Should keep all
         assert len(session.messages) == 5
 
-    def test_add_message_returns_none_for_unknown_session(self) -> None:
+    async def test_add_message_returns_none_for_unknown_session(self) -> None:
         manager = SessionManager()
 
-        result = manager.add_message("nonexistent", {"role": "user", "content": "test"})
+        result = await manager.add_message(
+            "nonexistent", {"role": "user", "content": "test"}
+        )
 
         assert result is None
 
@@ -377,14 +379,22 @@ class TestThreadSafety:
         assert len(errors) == 0
 
     def test_concurrent_add_message(self) -> None:
+        import asyncio
+
         manager = SessionManager(max_messages=100)
         session = manager.create()
         errors = []
 
         def add_messages() -> None:
             try:
-                for i in range(50):
-                    manager.add_message(session.id, {"role": "user", "content": str(i)})
+                # Run async add_message in a new event loop for each thread
+                async def run_adds() -> None:
+                    for i in range(50):
+                        await manager.add_message(
+                            session.id, {"role": "user", "content": str(i)}
+                        )
+
+                asyncio.run(run_adds())
             except Exception as e:
                 errors.append(e)
 

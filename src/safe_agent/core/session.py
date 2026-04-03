@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -177,8 +179,13 @@ class SessionManager:
             self._cleanup_expired()
             return list(self._sessions.keys())
 
-    def add_message(
-        self, session_id: str, message: dict, *, trim: bool = True
+    async def add_message(
+        self,
+        session_id: str,
+        message: dict[str, Any],
+        *,
+        trim: bool = True,
+        lock: asyncio.Lock | None = None,
     ) -> Session | None:
         """Add a message to a session with optional trimming.
 
@@ -186,23 +193,42 @@ class SessionManager:
             session_id: The unique identifier of the session.
             message: The message dict to append.
             trim: Whether to trim messages to max_messages (default True).
+            lock: Optional asyncio.Lock to use for synchronization. If provided,
+                this lock is used instead of the internal RLock, ensuring
+                compatibility with async code paths that use asyncio.Lock.
 
         Returns:
             The Session instance if found, None otherwise.
         """
-        with self._lock:
-            session = self.get(session_id)
-            if session is None:
-                return None
+        if lock is not None:
+            # Use the provided asyncio.Lock (for async contexts)
+            async with lock:
+                return self._add_message_impl(session_id, message, trim=trim)
+        else:
+            # Fall back to internal RLock (for backward compatibility)
+            with self._lock:
+                return self._add_message_impl(session_id, message, trim=trim)
 
-            session.messages.append(message)
+    def _add_message_impl(
+        self, session_id: str, message: dict[str, Any], *, trim: bool
+    ) -> Session | None:
+        """Internal implementation for adding a message (assumes caller holds lock)."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
 
-            if trim and len(session.messages) > session.max_messages:
-                # Trim oldest messages in-place (keep most recent max_messages)
-                excess = len(session.messages) - session.max_messages
-                del session.messages[:excess]
+        # Update access time and move to end (most recently used)
+        session.last_accessed = datetime.now(UTC)
+        self._sessions.move_to_end(session_id)
 
-            return session
+        session.messages.append(message)
+
+        if trim and len(session.messages) > session.max_messages:
+            # Trim oldest messages in-place (keep most recent max_messages)
+            excess = len(session.messages) - session.max_messages
+            del session.messages[:excess]
+
+        return session
 
     def count(self) -> int:
         """Return the current number of active sessions.
