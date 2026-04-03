@@ -36,8 +36,10 @@ class Session(BaseModel):
         messages: Conversation history for the session.
         max_messages: Maximum messages to retain (oldest trimmed first).
         metadata: Arbitrary session-scoped metadata.
-        created_at: Timestamp when the session was created.
-        last_accessed: Timestamp when the session was last accessed.
+        created_at: Timestamp when the session was created (datetime in UTC).
+        last_accessed: Monotonic timestamp when the session was last accessed (float).
+            This is a monotonic clock value (seconds since an arbitrary point), not a
+            wall-clock datetime. Use time.monotonic() for comparisons.
 
     Thread safety
     -------------
@@ -76,6 +78,10 @@ class SessionManager:
         session_ttl: Maximum idle time before a session is evicted (default 1 hour).
         max_sessions: Maximum number of concurrent sessions (default 1000).
         max_messages: Maximum messages per session before trimming (default 1000).
+
+    Note:
+        Session.last_accessed is a float (monotonic time) for efficient TTL
+        comparison, not a datetime. Use time.monotonic() values for comparisons.
     """
 
     def __init__(
