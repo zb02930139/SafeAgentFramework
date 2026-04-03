@@ -164,12 +164,6 @@ class EventLoop:
         self._max_turns = max_turns
         # asyncio.Lock: serialises concurrent async turns on the same session.
         self._session_async_locks: dict[str, asyncio.Lock] = {}
-        # threading.RLock: serialises session.messages mutations with threads
-        # that call SessionManager.add_message() concurrently.  Both this class
-        # and SessionManager.add_message() acquire session._message_lock (a
-        # per-Session threading.RLock) before reading or writing session.messages,
-        # so no lock object needs to be shared between the two components.
-        self._session_locks: dict[str, threading.RLock] = {}
 
     @property
     def max_turns(self) -> int:
@@ -179,7 +173,6 @@ class EventLoop:
     def release_session(self, session_id: str) -> None:
         """Release any per-session resources once a session is finished."""
         self._session_async_locks.pop(session_id, None)
-        self._session_locks.pop(session_id, None)
 
     async def process_turn(self, session: Session, user_message: str) -> str:
         """Process one user turn until the model returns final text.
@@ -248,6 +241,7 @@ class EventLoop:
                                 ],
                             }
                         )
+                    tool_msgs: list[dict] = []
                     for tool_call in restored_calls:
                         try:
                             result = await self._dispatcher.dispatch(
@@ -274,8 +268,9 @@ class EventLoop:
                         }
                         if tool_call.id is not None:
                             tool_msg["tool_call_id"] = tool_call.id
-                        with msg_lock:
-                            session.messages.append(tool_msg)
+                        tool_msgs.append(tool_msg)
+                    with msg_lock:
+                        session.messages.extend(tool_msgs)
 
                 elif response.content is not None:
                     # Content-only response (no tool_calls) - append and break loop
@@ -299,12 +294,12 @@ class EventLoop:
                         )
                     break
 
-            # Apply trimming once at the end of the turn, preserving
-            # tool call/result pairs
+            # Apply trimming and capture the final assistant message atomically
+            # under a single lock acquisition to prevent a concurrent add_message()
+            # thread from injecting a user message between the trim and the read,
+            # which would cause messages[-1] to return user content instead of the
+            # assistant response.
             with msg_lock:
                 _trim_messages_preserve_pairs(session)
-
-            # Return the last assistant message content
-            with msg_lock:
                 last_msg = session.messages[-1]
                 return str(last_msg.get("content", ""))
