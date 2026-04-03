@@ -22,7 +22,7 @@ from safe_agent.access.evaluator import PolicyEvaluator
 from safe_agent.access.policy import PolicyStore
 from safe_agent.core.audit import AuditLogger
 from safe_agent.core.dispatcher import ToolDispatcher
-from safe_agent.core.event_loop import EventLoop
+from safe_agent.core.event_loop import EventLoop, validate_max_turns
 from safe_agent.core.gateway import Gateway
 from safe_agent.core.llm import LLMClient
 from safe_agent.core.session import SessionManager
@@ -52,6 +52,8 @@ class Agent:
             audit_log_path: Path for audit log file. Defaults to "audit.jsonl".
             max_turns: Maximum turns per session before eviction.
         """
+        validate_max_turns(max_turns)
+
         store = PolicyStore()
         store.load(policy_dir)
         store.freeze()

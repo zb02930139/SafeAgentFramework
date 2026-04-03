@@ -16,7 +16,7 @@
 
 from safe_agent.core.audit import AuditEntry, AuditLogger
 from safe_agent.core.dispatcher import ToolDispatcher
-from safe_agent.core.event_loop import EventLoop
+from safe_agent.core.event_loop import MAX_TURNS_LIMIT, EventLoop, validate_max_turns
 from safe_agent.core.llm import (
     LLMClient,
     LLMResponse,
@@ -32,10 +32,12 @@ __all__ = [
     "EventLoop",
     "LLMClient",
     "LLMResponse",
+    "MAX_TURNS_LIMIT",
     "Session",
     "SessionManager",
     "ToolCall",
     "ToolDispatcher",
     "restore_tool_name",
     "sanitize_tool_name",
+    "validate_max_turns",
 ]

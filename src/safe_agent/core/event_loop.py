@@ -27,6 +27,42 @@ from safe_agent.modules.registry import ModuleRegistry
 
 logger = logging.getLogger(__name__)
 
+#: Hard upper limit for *max_turns* to prevent unbounded agent loops.
+MAX_TURNS_LIMIT: int = 10_000
+
+
+def validate_max_turns(value: object) -> int:
+    """Validate and return *max_turns*.
+
+    Rules
+    -----
+    * Must be a plain ``int`` (``bool`` is rejected).
+    * Must be in the range ``[1, MAX_TURNS_LIMIT]``.
+
+    Returns
+    -------
+    int
+        The validated value, unchanged.
+
+    Raises
+    ------
+    TypeError
+        If *value* is not an ``int`` or is a ``bool``.
+    ValueError
+        If *value* is outside the allowed range.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(
+            f"max_turns must be an int, got {type(value).__name__}"
+        )
+    if value < 1:
+        raise ValueError("max_turns must be >= 1")
+    if value > MAX_TURNS_LIMIT:
+        raise ValueError(
+            f"max_turns must be <= {MAX_TURNS_LIMIT}"
+        )
+    return value
+
 
 def _trim_messages_preserve_pairs(session: Session) -> None:
     """Trim session messages to max_messages, preserving tool call/result pairs.
@@ -124,6 +160,7 @@ class EventLoop:
         max_turns: int = 10,
     ) -> None:
         """Initialise the event loop dependencies and turn limit."""
+        validate_max_turns(max_turns)
         self._dispatcher = dispatcher
         self._llm_client = llm_client
         self._registry = registry
