@@ -543,3 +543,43 @@ class TestModuleRegistry:
         assert shell_tools.issubset(
             {t.name for t in registry.get_all_tool_descriptors()}
         )
+
+    # ---------------------------------------------------------------------------
+    # Issue #142 missing coverage tests
+    # ---------------------------------------------------------------------------
+
+    def test_module_with_zero_tools(self) -> None:
+        """describe() returns no tools - edge case for register()."""
+        module_no_tools = _make_module("empty", [])
+        registry = ModuleRegistry()
+        registry.register(module_no_tools)
+
+        # Namespace should be registered
+        assert registry.get_module("empty") is module_no_tools
+        # No tools should be registered
+        assert registry.get_all_tool_descriptors() == []
+
+    def test_describe_raises_during_register(self) -> None:
+        """describe() raising during register() leaves registry unaffected."""
+
+        class BadModule(BaseModule):
+            def describe(self) -> ModuleDescriptor:
+                raise RuntimeError("bad module")
+
+            async def resolve_conditions(
+                self, tool_name: str, params: dict[str, Any]
+            ) -> dict[str, Any]:
+                return {}
+
+            async def execute(
+                self, tool_name: str, params: dict[str, Any]
+            ) -> ToolResult[Any]:
+                return ToolResult(success=True)
+
+        registry = ModuleRegistry()
+        with pytest.raises(RuntimeError, match="bad module"):
+            registry.register(BadModule())
+
+        # Registry should be untouched
+        assert registry.get_module("bad") is None
+        assert registry.get_tool("bad:tool") is None

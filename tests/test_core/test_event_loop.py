@@ -58,6 +58,20 @@ class _FailingDispatcher(_FakeDispatcher):
         raise RuntimeError(msg)
 
 
+class _NonExceptionFailingDispatcher(_FakeDispatcher):
+    """Dispatcher that returns failed ToolResult without raising."""
+
+    async def dispatch(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        session_id: str,
+        tool_call_id: str | None = None,
+    ) -> ToolResult[Any]:
+        self.calls.append((tool_name, params, session_id, tool_call_id))
+        return ToolResult(success=False, error="Dispatch failed")
+
+
 class _FakeLLM:
     def __init__(self, responses: list[LLMResponse], delay: float = 0.0) -> None:
         self._responses = responses
@@ -540,3 +554,141 @@ def test_multiple_tool_calls_with_distinct_ids(registry: ModuleRegistry) -> None
     assert tool_msg_1["tool_call_id"] == "call-a"
     tool_msg_2 = session.messages[3]
     assert tool_msg_2["tool_call_id"] == "call-b"
+
+
+# ---------------------------------------------------------------------------
+# Priority tests from issue #142
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_failure_result_non_exception(registry: ModuleRegistry) -> None:
+    """When dispatch() returns ToolResult(success=False) without raising.
+
+    Priority test from issue #142: The event loop must serialize the failed
+    result and send it to the LLM, just like the exception path.
+    """
+    dispatcher = _NonExceptionFailingDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="demo:echo", params={"value": 1})]),
+            LLMResponse(content="handled failure"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+    session = Session(id="session-1")
+
+    result = asyncio.run(event_loop.process_turn(session, "run tool"))
+
+    assert result == "handled failure"
+    assert dispatcher.calls == [("demo:echo", {"value": 1}, "session-1", None)]
+
+    # Tool result message must contain serialized ToolResult
+    tool_msg = session.messages[2]
+    assert tool_msg["role"] == "tool"
+    assert tool_msg["name"] == "demo:echo"
+    tool_content = json.loads(tool_msg["content"])
+    assert tool_content == {
+        "success": False,
+        "data": None,
+        "error": "Dispatch failed",
+        "metadata": {},
+    }
+
+
+def test_both_none_llm_response(registry: ModuleRegistry) -> None:
+    """Test for LLMResponse(content=None, tool_calls=None).
+
+    Priority test from issue #142: When LLM returns both None, the event
+    loop continues until max_turns is reached, then makes a final text-only
+    call (which returns "" in this test).
+    """
+    dispatcher = _FakeDispatcher()
+    # Need responses for: first turn (both None triggers continue),
+    # then second turn returns content to break the loop
+    llm = _FakeLLM(
+        [
+            LLMResponse(content=None, tool_calls=None),  # First turn - both None
+            LLMResponse(content="final response"),  # After loop breaks
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry, max_turns=2)
+    session = Session(id="session-1")
+
+    result = asyncio.run(event_loop.process_turn(session, "hello"))
+
+    # After max_turns is reached, a final text-only call is made
+    assert result == "final response"
+
+    # Session should have user message and at least one assistant message
+    assert session.messages[0] == {"role": "user", "content": "hello"}
+
+
+def test_max_turns_one_behavior(registry: ModuleRegistry) -> None:
+    """max_turns=1 forces a final text-only call after first tool iteration.
+
+    Priority test from issue #142: Edge case where turn limit of 1 is
+    reached immediately after processing tool calls.
+    """
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="demo:echo", params={"step": 1})]),
+            LLMResponse(content="final text response"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry, max_turns=1)
+    session = Session(id="session-1")
+
+    result = asyncio.run(event_loop.process_turn(session, "start"))
+
+    # Dispatcher should have been called once
+    assert dispatcher.calls == [("demo:echo", {"step": 1}, "session-1", None)]
+
+    # Result comes from final text-only call after max_turns=1
+    assert result == "final text response"
+
+    # Final LLM call should have empty tools
+    _, tools_sent = llm.calls[-1]
+    assert tools_sent == []
+
+
+def test_pre_populated_session_messages(registry: ModuleRegistry) -> None:
+    """All tests start with empty Session - need test with existing messages.
+
+    Priority test from issue #142: EventLoop should work correctly when
+    session already has pre-populated messages.
+    """
+    dispatcher = _FakeDispatcher()
+    llm = _FakeLLM(
+        [
+            LLMResponse(content="response to follow-up"),
+        ]
+    )
+    event_loop = EventLoop(dispatcher, llm, registry)
+
+    # Pre-populate session with existing conversation
+    session = Session(id="session-1")
+    session.messages = [
+        {"role": "user", "content": "first message"},
+        {"role": "assistant", "content": "first response"},
+        {"role": "user", "content": "second message"},
+        {"role": "assistant", "content": "second response"},
+    ]
+
+    result = asyncio.run(event_loop.process_turn(session, "follow-up"))
+
+    assert result == "response to follow-up"
+
+    # Existing messages should be preserved, new ones appended
+    assert len(session.messages) == 6
+    assert session.messages[0] == {"role": "user", "content": "first message"}
+    assert session.messages[3] == {"role": "assistant", "content": "second response"}
+    assert session.messages[4] == {"role": "user", "content": "follow-up"}
+    assert session.messages[5] == {
+        "role": "assistant",
+        "content": "response to follow-up",
+    }
+
+    # LLM should have received all messages including pre-populated
+    messages_to_llm, _ = llm.calls[0]
+    assert len(messages_to_llm) == 5  # 4 pre-existing + 1 new user message

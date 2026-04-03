@@ -454,3 +454,60 @@ class TestToolDispatcher:
         entries = _audit(tmp_path).read_entries()
         for entry in entries:
             assert entry.tool_call_id is None
+
+    async def test_empty_string_tool_name(self, tmp_path: Path) -> None:
+        """Empty string tool_name should be handled gracefully.
+
+        Issue #142: Test that empty-string tool_name doesn't crash.
+        """
+        module = _make_module("fs", "fs:Read", "filesystem:Read")
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+        result = await dispatcher.dispatch("", {}, "s1")
+        assert result.success is False
+        assert result.error == "Dispatch failed"
+
+        # Audit should record the unknown tool probe
+        entries = _audit(tmp_path).read_entries()
+        assert len(entries) == 1
+        assert entries[0].matched_statements == ["__unknown_tool__"]
+        assert entries[0].tool_name == ""
+
+    async def test_params_none_raises(self, tmp_path: Path) -> None:
+        """params=None raises validation error in AuditEntry params.
+
+        Issue #142: params=None causes AuditEntry to reject with ValidationError.
+        This documents the expected behavior - callers should not pass None.
+        """
+        module = _make_module("fs", "fs:Read", "filesystem:Read")
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+        # None params causes AuditEntry validation to fail
+        with pytest.raises(Exception):  # noqa: B017
+            await dispatcher.dispatch("fs:Read", None, "s1")  # type: ignore[arg-type]
+
+    async def test_evaluator_exception_uncaught_in_log(self, tmp_path: Path) -> None:
+        """Evaluator exception when _log_safe returns False is still safe.
+
+        Issue #142: Lines 239-261 handle evaluator exceptions.
+        Verify _log_safe return is checked on this path (it logs and continues).
+        """
+        module = _make_module("fs", "fs:Read", "filesystem:Read", ["path"])
+        dispatcher = _make_dispatcher(module, _ALLOW_ALL, tmp_path)
+
+        call_count = 0
+
+        def fail_log_after_eval(*args: Any, **kwargs: Any) -> None:
+            nonlocal call_count
+            call_count += 1
+            # Fail the audit log *after* policy evaluation but on the second resource
+            if call_count == 2:
+                raise OSError("log failed after eval")
+            dispatcher._audit_logger._write_entry(args[0])  # type: ignore[attr-defined]
+
+        with patch.object(
+            dispatcher._audit_logger, "log", side_effect=fail_log_after_eval
+        ):
+            result = await dispatcher.dispatch("fs:Read", {"path": "/etc/hosts"}, "s1")
+
+        # Should deny when log fails after eval
+        assert result.success is False
+        assert result.error == "Dispatch failed"

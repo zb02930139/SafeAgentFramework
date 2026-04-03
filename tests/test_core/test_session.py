@@ -550,3 +550,77 @@ class TestCleanupConsistency:
 
         # Both sessions should be gone (session1 closed, session2 expired)
         assert manager.count() == 0
+
+
+class TestMissingCoverageIssue142:
+    """Tests added to cover missing coverage from issue #142."""
+
+    def test_close_idempotency(self) -> None:
+        """Double-close on the same session ID should be safe.
+
+        Issue #142: close() idempotency test.
+        """
+        manager = SessionManager()
+        session = manager.create()
+        session_id = session.id
+
+        # First close should work
+        manager.close(session_id)
+        assert manager.get(session_id) is None
+
+        # Second close on same ID should not raise
+        manager.close(session_id)  # Should be a no-op, not crash
+        assert manager.get(session_id) is None
+
+    def test_add_message_malformed_message(self) -> None:
+        """add_message should handle malformed message dicts gracefully.
+
+        Issue #142: Test missing role key and non-dict values.
+        Session simply stores what it's given; the test verifies no crash.
+        """
+        manager = SessionManager()
+        session = manager.create()
+
+        # Message missing 'role' key - Session stores it as-is
+        result = manager.add_message(session.id, {"content": "no role"})
+        assert result is session
+        assert session.messages[-1] == {"content": "no role"}
+
+        # Message that is not a dict - Session should handle gracefully
+        result = manager.add_message(session.id, 42)  # type: ignore[arg-type]
+        assert result is session
+        # Non-dict is stored as-is
+        assert session.messages[-1] == 42
+
+    def test_list_active_after_all_expired(self) -> None:
+        """list_active() should return empty list after all sessions expire.
+
+        Issue #142: Test list_active behavior after all sessions expired.
+        """
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)
+
+        # Create sessions
+        manager.create()
+        manager.create()
+        assert len(manager.list_active()) == 2
+
+        # Advance past TTL
+        fake_time.advance(0.15)
+
+        # list_active should trigger cleanup and return empty
+        assert manager.list_active() == []
+
+    def test_add_message_returns_none_for_closed_session(self) -> None:
+        """add_message should return None for a closed session.
+
+        Issue #142: Test behavior when session is closed.
+        """
+        manager = SessionManager()
+        session = manager.create()
+        session_id = session.id
+
+        manager.close(session_id)
+
+        result = manager.add_message(session_id, {"role": "user", "content": "test"})
+        assert result is None
