@@ -255,3 +255,42 @@ def test_agent_constructor_with_max_turns(
     )
 
     assert agent.event_loop.max_turns == 5
+
+
+def test_agent_constructor_rejects_max_turns_zero(
+    mock_policy_dir: Path, mock_llm: MockLLM
+) -> None:
+    """Test that max_turns=0 raises ValueError (issue #134)."""
+    with pytest.raises(ValueError, match="max_turns must be >= 1"):
+        Agent(
+            policy_dir=mock_policy_dir,
+            llm_client=mock_llm,
+            modules=[MockModule()],
+            max_turns=0,
+        )
+
+
+def test_agent_constructor_rejects_negative_max_turns(
+    mock_policy_dir: Path, mock_llm: MockLLM
+) -> None:
+    """Test that negative max_turns raises ValueError (issue #134)."""
+    with pytest.raises(ValueError, match="max_turns must be >= 1"):
+        Agent(
+            policy_dir=mock_policy_dir,
+            llm_client=mock_llm,
+            modules=[MockModule()],
+            max_turns=-1,
+        )
+
+
+def test_agent_constructor_accepts_max_turns_one(
+    mock_policy_dir: Path, mock_llm: MockLLM
+) -> None:
+    """Test that max_turns=1 is accepted (issue #134)."""
+    agent = Agent(
+        policy_dir=mock_policy_dir,
+        llm_client=mock_llm,
+        modules=[MockModule()],
+        max_turns=1,
+    )
+    assert agent.event_loop.max_turns == 1
