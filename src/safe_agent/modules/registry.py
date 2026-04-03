@@ -104,7 +104,13 @@ class ModuleRegistry:
 
         # Pre-validate tool name uniqueness before touching any state.
         # This makes register() atomic: either all tools are committed or none.
+        seen: set[str] = set()
         for tool in tools:
+            if tool.name in seen:
+                raise ValueError(
+                    f"Duplicate tool name '{tool.name}' within module '{namespace}'. "
+                    f"Tool names must be unique within a module."
+                )
             if tool.name in self._tool_map:
                 existing_module, _ = self._tool_map[tool.name]
                 raise ValueError(
@@ -112,6 +118,7 @@ class ModuleRegistry:
                     f"by {existing_module!r}. "
                     f"Tool names must be unique across all modules."
                 )
+            seen.add(tool.name)
 
         # All validation passed — commit namespace and tools together.
         self._namespace_map[namespace] = module
@@ -222,8 +229,15 @@ class ModuleRegistry:
                     f"registered by {existing!r}."
                 )
 
-            # Tool collision check against staging state.
+            # Tool collision check: intra-module duplicates and cross-module
+            # collisions against staging state.
+            seen_in_module: set[str] = set()
             for tool in tools:
+                if tool.name in seen_in_module:
+                    raise ValueError(
+                        f"Duplicate tool name '{tool.name}' within module "
+                        f"'{namespace}'. Tool names must be unique within a module."
+                    )
                 if tool.name in staging_tool_map:
                     existing_module, _ = staging_tool_map[tool.name]
                     raise ValueError(
@@ -231,6 +245,7 @@ class ModuleRegistry:
                         f"registered by {existing_module!r}. "
                         f"Tool names must be unique across all modules."
                     )
+                seen_in_module.add(tool.name)
 
             # All checks passed — write to staging only. If anything below
             # raises, these local dicts are discarded and live state remains

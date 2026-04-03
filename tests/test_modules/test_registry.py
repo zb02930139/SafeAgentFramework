@@ -143,6 +143,28 @@ class TestModuleRegistry:
         with pytest.raises(ValueError, match="Tool name collision"):
             registry.register(second)
 
+    def test_intra_module_duplicate_tool_name_raises(self) -> None:
+        """A module whose describe() returns duplicate tool names raises ValueError.
+
+        Previously the second duplicate silently overwrote the first in
+        _tool_map. This test fixes issue #136.
+        """
+        registry = ModuleRegistry()
+        duplicate = _make_module("ns", ["ns:tool", "ns:tool"])
+        with pytest.raises(ValueError, match="Duplicate tool name 'ns:tool'"):
+            registry.register(duplicate)
+
+    def test_intra_module_duplicate_is_atomic(self) -> None:
+        """A duplicate within a module must not partially register the namespace."""
+        registry = ModuleRegistry()
+        duplicate = _make_module("dup", ["dup:A", "dup:B", "dup:A"])
+        with pytest.raises(ValueError, match="Duplicate tool name"):
+            registry.register(duplicate)
+        # Nothing should have been committed.
+        assert registry.get_module("dup") is None
+        assert registry.get_tool("dup:A") is None
+        assert registry.get_tool("dup:B") is None
+
     def test_tool_name_collision_is_atomic(self) -> None:
         """If a tool name collision occurs, no partial state is committed."""
         registry = ModuleRegistry()
@@ -468,6 +490,29 @@ class TestModuleRegistry:
         assert registry.get_module("shared") is manual
         assert registry.get_tool("shared:Manual") is not None
         assert registry.get_tool("shared:Discovered") is None
+        assert registry._discovered is False
+
+    def test_discover_intra_module_duplicate_tool_name_raises(self) -> None:
+        """discover() should raise ValueError for a module with duplicate tool names.
+
+        Covers issue #136 for the discover() path.
+        """
+        dup_instance = _make_module("dupmod", ["dupmod:tool", "dupmod:tool"])
+        DupClass = type(dup_instance)
+
+        mock_ep = MagicMock()
+        mock_ep.name = "dup_ep"
+        mock_ep.value = "pkg:DupModule"
+        mock_ep.load.return_value = DupClass
+
+        registry = ModuleRegistry()
+        with patch("safe_agent.modules.registry.entry_points", return_value=[mock_ep]):
+            with pytest.raises(ValueError, match="Duplicate tool name"):
+                registry.discover()
+
+        # Registry must remain clean.
+        assert registry.get_module("dupmod") is None
+        assert registry.get_tool("dupmod:tool") is None
         assert registry._discovered is False
 
     def test_discover_loads_builtin_modules_from_real_entry_points(self) -> None:
