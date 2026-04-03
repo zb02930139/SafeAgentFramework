@@ -39,12 +39,12 @@ def validate_max_turns(value: object) -> int:
     * Must be a plain ``int`` (``bool`` is rejected).
     * Must be in the range ``[1, MAX_TURNS_LIMIT]``.
 
-    Returns
+    Returns:
     -------
     int
         The validated value, unchanged.
 
-    Raises
+    Raises:
     ------
     TypeError
         If *value* is not an ``int`` or is a ``bool``.
@@ -52,15 +52,11 @@ def validate_max_turns(value: object) -> int:
         If *value* is outside the allowed range.
     """
     if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(
-            f"max_turns must be an int, got {type(value).__name__}"
-        )
+        raise TypeError(f"max_turns must be an int, got {type(value).__name__}")
     if value < 1:
-        raise ValueError("max_turns must be >= 1")
+        raise ValueError(f"max_turns must be >= 1, got {value}")
     if value > MAX_TURNS_LIMIT:
-        raise ValueError(
-            f"max_turns must be <= {MAX_TURNS_LIMIT}"
-        )
+        raise ValueError(f"max_turns must be <= {MAX_TURNS_LIMIT}, got {value}")
     return value
 
 

@@ -22,7 +22,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from safe_agent.core import EventLoop, Session
+from safe_agent.core import EventLoop
 from safe_agent.core.event_loop import MAX_TURNS_LIMIT, validate_max_turns
 from safe_agent.core.llm import LLMClient, LLMResponse
 from safe_agent.modules.base import (
@@ -32,7 +32,6 @@ from safe_agent.modules.base import (
     ToolResult,
 )
 from safe_agent.modules.registry import ModuleRegistry
-
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -83,7 +82,7 @@ def llm() -> _StubLLM:
 
 
 # ---------------------------------------------------------------------------
-# validate_max_turns – standalone function
+# validate_max_turns - standalone function
 # ---------------------------------------------------------------------------
 
 
