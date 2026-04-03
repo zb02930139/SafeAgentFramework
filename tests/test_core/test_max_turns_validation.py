@@ -63,9 +63,7 @@ class _StubModule(BaseModule):
     ) -> dict[str, Any]:
         return {}
 
-    async def execute(
-        self, tool_name: str, params: dict[str, Any]
-    ) -> ToolResult[Any]:
+    async def execute(self, tool_name: str, params: dict[str, Any]) -> ToolResult[Any]:
         return ToolResult(success=True, data={})
 
 
@@ -160,63 +158,43 @@ class TestValidateMaxTurns:
 class TestEventLoopMaxTurnsValidation:
     """Ensure EventLoop.__init__ validates max_turns properly."""
 
-    def test_default_is_ten(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_default_is_ten(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         el = EventLoop(Mock(), llm, registry)
         assert el.max_turns == 10
 
-    def test_custom_value_stored(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_custom_value_stored(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         el = EventLoop(Mock(), llm, registry, max_turns=42)
         assert el.max_turns == 42
 
-    def test_rejects_zero(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_zero(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(ValueError, match="must be >= 1"):
             EventLoop(Mock(), llm, registry, max_turns=0)
 
-    def test_rejects_negative(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_negative(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(ValueError, match="must be >= 1"):
             EventLoop(Mock(), llm, registry, max_turns=-5)
 
-    def test_rejects_bool(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_bool(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(TypeError, match="must be an int"):
             EventLoop(Mock(), llm, registry, max_turns=True)
 
-    def test_rejects_float(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_float(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(TypeError, match="must be an int"):
             EventLoop(Mock(), llm, registry, max_turns=5.0)
 
-    def test_rejects_string(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_string(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(TypeError, match="must be an int"):
             EventLoop(Mock(), llm, registry, max_turns="10")
 
-    def test_rejects_none(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_none(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(TypeError, match="must be an int"):
             EventLoop(Mock(), llm, registry, max_turns=None)
 
-    def test_rejects_above_limit(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_rejects_above_limit(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         with pytest.raises(ValueError, match=f"must be <= {MAX_TURNS_LIMIT}"):
             EventLoop(Mock(), llm, registry, max_turns=MAX_TURNS_LIMIT + 1)
 
-    def test_accepts_upper_limit(
-        self, registry: ModuleRegistry, llm: _StubLLM
-    ) -> None:
+    def test_accepts_upper_limit(self, registry: ModuleRegistry, llm: _StubLLM) -> None:
         el = EventLoop(Mock(), llm, registry, max_turns=MAX_TURNS_LIMIT)
         assert el.max_turns == MAX_TURNS_LIMIT
 
@@ -306,9 +284,7 @@ class TestAgentMaxTurnsValidation:
                 max_turns=MAX_TURNS_LIMIT + 1,
             )
 
-    def test_valid_value_propagates(
-        self, policy_dir: Path, mock_llm: _StubLLM
-    ) -> None:
+    def test_valid_value_propagates(self, policy_dir: Path, mock_llm: _StubLLM) -> None:
         from safe_agent import Agent
 
         agent = Agent(
