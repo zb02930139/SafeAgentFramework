@@ -209,7 +209,7 @@ async def test_denied_tool_call_returns_generic_error(tmp_path: Path) -> None:
             LLMResponse(
                 tool_calls=[
                     ToolCall(
-                        name="test:echo",
+                        name="test__echo",
                         params={"target": "denied-resource", "message": "secret"},
                     )
                 ]
@@ -250,7 +250,7 @@ async def test_audit_log_contains_entries_for_all_decisions(tmp_path: Path) -> N
             LLMResponse(
                 tool_calls=[
                     ToolCall(
-                        name="test:echo",
+                        name="test__echo",
                         params={
                             "target": "allowed-resource",
                             "message": "hello",
@@ -262,7 +262,7 @@ async def test_audit_log_contains_entries_for_all_decisions(tmp_path: Path) -> N
             LLMResponse(
                 tool_calls=[
                     ToolCall(
-                        name="test:echo",
+                        name="test__echo",
                         params={
                             "target": "denied-resource",
                             "message": "hello",

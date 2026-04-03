@@ -23,7 +23,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from safe_agent import Agent
-from safe_agent.core.llm import LLMClient
+from safe_agent.core.llm import LLMClient, LLMResponse
 from safe_agent.modules.base import BaseModule
 
 
@@ -33,9 +33,9 @@ class MockLLM(LLMClient):
     def __init__(self) -> None:
         self.chat_calls: list[tuple[list, list]] = []
 
-    async def chat(self, messages: list, tools: list) -> None:
+    async def chat(self, messages: list, tools: list) -> LLMResponse:
         self.chat_calls.append((messages, tools))
-        return Mock()
+        return LLMResponse(content="mock response")
 
 
 class MockModule(BaseModule):
