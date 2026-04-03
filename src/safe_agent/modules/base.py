@@ -17,7 +17,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ToolDescriptor(BaseModel):
@@ -51,6 +51,8 @@ class ToolDescriptor(BaseModel):
         A tool name that already contains ``__`` would make the colon-restore
         round-trip ambiguous and silently corrupt dispatch.
         """
+        if not v or not v.strip():
+            raise ValueError("tool name must not be empty")
         if "__" in v:
             msg = (
                 f"Tool name {v!r} must not contain '__' (double underscore); "
@@ -63,6 +65,8 @@ class ToolDescriptor(BaseModel):
     @classmethod
     def _coerce_resource_param(cls, v: Any) -> list[str]:
         """Coerce a bare string into a single-element list."""
+        if v is None:
+            return []
         if isinstance(v, str):
             return [v]
         return list(v)
@@ -102,6 +106,21 @@ class ToolResult[ToolDataT = Any](BaseModel):
     data: ToolDataT | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_consistency(self) -> "ToolResult[ToolDataT]":
+        """Enforce consistency between success, data, and error.
+
+        - success=True implies error is None
+        - success=False implies data is None
+        """
+        if self.success and self.error is not None:
+            raise ValueError(
+                "ToolResult with success=True must not have an error message"
+            )
+        if not self.success and self.data is not None:
+            raise ValueError("ToolResult with success=False must not have data")
+        return self
 
 
 class BaseModule(ABC):

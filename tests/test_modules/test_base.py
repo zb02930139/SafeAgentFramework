@@ -142,6 +142,16 @@ class TestToolDescriptor:
         )
         assert td.parameters == schema
 
+    def test_resource_param_none_returns_empty_list(self) -> None:
+        """resource_param=None should result in [] (not TypeError)."""
+        td = ToolDescriptor(
+            name="x:y",
+            description="d",
+            action="x:Y",
+            resource_param=None,
+        )
+        assert td.resource_param == []
+
 
 # ---------------------------------------------------------------------------
 # ModuleDescriptor
@@ -216,6 +226,30 @@ class TestToolResult:
         r = ToolResult(success=True, metadata={"latency_ms": 12})
         assert r.metadata["latency_ms"] == 12
 
+    def test_success_true_with_error_rejected(self) -> None:
+        """ToolResult(success=True, error='msg') should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            ToolResult(success=True, error="msg")
+
+    def test_success_false_with_data_rejected(self) -> None:
+        """ToolResult(success=False, data='some data') should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            ToolResult(success=False, data="some data")
+
+    def test_success_true_with_none_error_allowed(self) -> None:
+        """ToolResult(success=True, error=None, data='ok') should be allowed."""
+        r = ToolResult(success=True, error=None, data="ok")
+        assert r.success is True
+        assert r.error is None
+        assert r.data == "ok"
+
+    def test_success_false_with_none_data_allowed(self) -> None:
+        """ToolResult(success=False, data=None, error='fail') should be allowed."""
+        r = ToolResult(success=False, data=None, error="fail")
+        assert r.success is False
+        assert r.data is None
+        assert r.error == "fail"
+
 
 # ---------------------------------------------------------------------------
 # BaseModule
@@ -285,3 +319,23 @@ class TestToolDescriptorNameValidation:
             action="shell:RunCommand",
         )
         assert td.name == "shell:run_command"
+
+    def test_empty_name_rejected(self) -> None:
+        """An empty name should raise ValidationError with 'empty' message."""
+        with pytest.raises(ValidationError, match="empty"):
+            ToolDescriptor(
+                name="",
+                description="Empty name test.",
+                parameters={},
+                action="test:Empty",
+            )
+
+    def test_whitespace_only_name_rejected(self) -> None:
+        """A whitespace-only name should raise ValidationError with 'empty' message."""
+        with pytest.raises(ValidationError, match="empty"):
+            ToolDescriptor(
+                name="   ",
+                description="Whitespace name test.",
+                parameters={},
+                action="test:Whitespace",
+            )
