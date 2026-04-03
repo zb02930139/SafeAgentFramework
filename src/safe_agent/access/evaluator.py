@@ -30,15 +30,18 @@ from safe_agent.access.policy import PolicyStore
 
 
 def _safe_float(value: Any) -> float | None:
-    """Safely convert a value to float, rejecting inf and nan.
+    """Safely convert a value to float, rejecting inf, nan, and booleans.
 
     Args:
         value: The value to convert (typically a string or number).
 
     Returns:
         The float value if valid and finite, or ``None`` if conversion fails
-        or the result is inf/nan.
+        or the result is inf/nan or the input is a boolean.
     """
+    # Reject booleans explicitly (float(True) == 1.0, float(False) == 0.0)
+    if isinstance(value, bool):
+        return None
     try:
         f = float(value)
         if math.isinf(f) or math.isnan(f):
@@ -130,18 +133,30 @@ def _match_numeric_op(operator: str, ctx_val: float, condition_val: float) -> bo
 def _match_bool_op(ctx_val: Any, condition_val: Any) -> bool:
     """Evaluate a boolean condition comparison.
 
-    Both values are converted to lowercase strings and compared for equality.
-    This supports common truthy/falsy representations like "true", "True",
-    "false", "False", as well as boolean ``True``/``False`` values.
+    Both values must normalize to "true" or "false". Arbitrary strings
+    that don't represent boolean values are rejected.
+
+    Supports common representations like "true", "True", "false", "False",
+    as well as boolean ``True``/``False`` values.
 
     Args:
         ctx_val: The actual value from the request context.
         condition_val: The expected boolean value from the condition block.
 
     Returns:
-        ``True`` if both values normalize to the same boolean string.
+        ``True`` if both values normalize to the same valid boolean string
+        ("true" or "false"). Returns ``False`` if either value doesn't
+        represent a valid boolean.
     """
-    return str(ctx_val).lower() == str(condition_val).lower()
+    ctx_normalized = str(ctx_val).lower()
+    cond_normalized = str(condition_val).lower()
+
+    # Both values must be valid boolean representations
+    valid_bools = {"true", "false"}
+    if ctx_normalized not in valid_bools or cond_normalized not in valid_bools:
+        return False
+
+    return ctx_normalized == cond_normalized
 
 
 def _evaluate_condition_block(

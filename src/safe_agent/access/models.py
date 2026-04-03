@@ -55,9 +55,9 @@ class Statement(BaseModel):
 
     sid: str | None = Field(default=None, alias="Sid")
     effect: Literal["Allow", "Deny"] = Field(alias="Effect")
-    action: list[str] = Field(alias="Action")
-    resource: list[str] = Field(alias="Resource")
-    condition: dict[str, Any] | None = Field(default=None, alias="Condition")
+    action: list[str] = Field(alias="Action", min_length=1)
+    resource: list[str] = Field(alias="Resource", min_length=1)
+    condition: dict[str, dict[str, Any]] | None = Field(default=None, alias="Condition")
 
 
 class Policy(BaseModel):

@@ -839,7 +839,7 @@ class TestBoolCondition:
         )
 
     def test_bool_non_boolean_value(self):
-        """Bool operator compares stringified values, so non-bools work too."""
+        """Bool operator now validates that values are boolean representations."""
         store = make_store(
             {
                 "Version": "2025-01",
@@ -854,9 +854,10 @@ class TestBoolCondition:
             }
         )
         ev = PolicyEvaluator(store)
+        # "yes" is not a valid boolean representation (must be "true"/"false")
         assert (
             ev.evaluate(make_request("agent:Run", "*", status="yes")).decision
-            == Decision.ALLOWED
+            == Decision.DENIED_IMPLICIT
         )
         assert (
             ev.evaluate(make_request("agent:Run", "*", status="no")).decision
@@ -1037,6 +1038,240 @@ class TestInfNanGuard:
         ev = PolicyEvaluator(store)
         result = ev.evaluate(make_request("agent:Run", "*", count=42))
         assert result.decision == Decision.ALLOWED
+
+
+class TestBoolOperatorValidation:
+    """Tests for Bool operator validation (issue #138).
+
+    The Bool operator should reject arbitrary strings that don't represent
+    boolean values. Only "true" and "false" (case-insensitive) should be
+    accepted.
+    """
+
+    def test_bool_rejects_arbitrary_string_in_context(self):
+        """Non-boolean string in context should be rejected."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # "hello" is not a valid boolean representation
+        result = ev.evaluate(make_request("agent:Run", "*", flag="hello"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_bool_rejects_arbitrary_string_in_condition(self):
+        """Non-boolean string in condition value should be rejected."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "hello"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # Both "hello" values don't represent booleans
+        result = ev.evaluate(make_request("agent:Run", "*", flag="hello"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_bool_true_string_matches_true(self):
+        """'true' should match 'true'."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", flag="true"))
+        assert result.decision == Decision.ALLOWED
+
+    def test_bool_false_string_matches_false(self):
+        """'false' should match 'false'."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "false"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", flag="false"))
+        assert result.decision == Decision.ALLOWED
+
+    def test_bool_mismatch_true_false_denied(self):
+        """'true' should not match 'false'."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "true"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", flag="false"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_bool_yes_no_rejected(self):
+        """'yes' and 'no' are not valid boolean representations."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"Bool": {"flag": "yes"}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # "yes" is not a valid boolean
+        result = ev.evaluate(make_request("agent:Run", "*", flag="yes"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+        result = ev.evaluate(make_request("agent:Run", "*", flag="no"))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+
+class TestSafeFloatBooleanRejection:
+    """Tests for _safe_float rejecting booleans (issue #138).
+
+    Python booleans should be rejected from numeric conditions since
+    float(True) == 1.0 could bypass numeric checks.
+    """
+
+    def test_context_bool_true_rejected(self):
+        """Boolean True in context should be rejected from numeric conditions."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": 1}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # True == 1 would bypass numeric check, but should be rejected
+        result = ev.evaluate(make_request("agent:Run", "*", count=True))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_context_bool_false_rejected(self):
+        """Boolean False in context should be rejected from numeric conditions."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": 0}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # False == 0 would bypass numeric check, but should be rejected
+        result = ev.evaluate(make_request("agent:Run", "*", count=False))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_condition_bool_true_rejected(self):
+        """Boolean True in condition value should be rejected."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": True}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count=1))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_condition_bool_false_rejected(self):
+        """Boolean False in condition value should be rejected."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericEquals": {"count": False}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        result = ev.evaluate(make_request("agent:Run", "*", count=0))
+        assert result.decision == Decision.DENIED_IMPLICIT
+
+    def test_numeric_less_than_bool_true_rejected(self):
+        """NumericLessThan should reject boolean True (which equals 1.0)."""
+        store = make_store(
+            {
+                "Version": "2025-01",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["agent:*"],
+                        "Resource": ["*"],
+                        "Condition": {"NumericLessThan": {"count": 10}},
+                    }
+                ],
+            }
+        )
+        ev = PolicyEvaluator(store)
+        # True would pass (1.0 < 10), but should be rejected
+        result = ev.evaluate(make_request("agent:Run", "*", count=True))
+        assert result.decision == Decision.DENIED_IMPLICIT
 
 
 class TestInvalidNumericConditionValues:
