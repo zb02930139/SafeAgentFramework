@@ -52,6 +52,8 @@ class Agent:
             audit_log_path: Path for audit log file. Defaults to "audit.jsonl".
             max_turns: Maximum turns per session before eviction.
         """
+        # Validate max_turns early in Agent to fail-fast before expensive
+        # PolicyStore.load(). EventLoop also validates defensively.
         validate_max_turns(max_turns)
 
         store = PolicyStore()
