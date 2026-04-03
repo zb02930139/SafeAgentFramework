@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -54,7 +55,7 @@ class Session(BaseModel):
     max_messages: int = Field(default=1000, gt=0)
     metadata: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    last_accessed: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_accessed: float = Field(default_factory=time.monotonic)
 
     #: Per-session reentrant lock protecting ``messages``.
     #: Excluded from serialisation; created fresh for each Session instance.
@@ -83,6 +84,7 @@ class SessionManager:
         session_ttl: timedelta | float | None = None,
         max_sessions: int | None = None,
         max_messages: int | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         """Initialize session manager with optional limits.
 
@@ -91,17 +93,25 @@ class SessionManager:
                 or float (interpreted as seconds). Default is 1 hour (3600 seconds).
             max_sessions: Maximum concurrent sessions. Default is 1000.
             max_messages: Maximum messages per session. Default is 1000.
+            clock: Optional clock function returning monotonic time as float.
+                Defaults to time.monotonic. Used for testing with fake clocks.
         """
-        # Normalize TTL to timedelta
+        # Store clock (for testing)
+        self._clock = clock or time.monotonic
+
+        # Normalize TTL to float seconds for comparison
         if session_ttl is None:
-            self.session_ttl = timedelta(seconds=3600)  # 1 hour default
+            self._session_ttl_seconds = 3600.0  # 1 hour default
         elif isinstance(session_ttl, timedelta):
-            self.session_ttl = session_ttl
+            self._session_ttl_seconds = session_ttl.total_seconds()
         else:
-            self.session_ttl = timedelta(seconds=session_ttl)
+            self._session_ttl_seconds = float(session_ttl)
+
+        # Also store as timedelta for backward compatibility
+        self.session_ttl = timedelta(seconds=self._session_ttl_seconds)
 
         # Validate TTL is non-negative
-        if self.session_ttl.total_seconds() < 0:
+        if self._session_ttl_seconds < 0:
             raise ValueError("session_ttl must be non-negative")
 
         # Apply defaults
@@ -138,6 +148,8 @@ class SessionManager:
                 self._evict_lru()
 
             session = Session(max_messages=self.max_messages)
+            # Use the manager's clock for last_accessed (important for testing)
+            session.last_accessed = self._clock()
             self._sessions[session.id] = session
             # Move to end (most recently used)
             self._sessions.move_to_end(session.id)
@@ -163,7 +175,7 @@ class SessionManager:
                 return None
 
             # Update access time and move to end (most recently used)
-            session.last_accessed = datetime.now(UTC)
+            session.last_accessed = self._clock()
             self._sessions.move_to_end(session_id)
             return session
 
@@ -220,7 +232,7 @@ class SessionManager:
             if session is None:
                 return None
             # Update access time and LRU position while holding the manager lock.
-            session.last_accessed = datetime.now(UTC)
+            session.last_accessed = self._clock()
             self._sessions.move_to_end(session_id)
 
         # Protect the actual message mutation with the per-session lock so that
@@ -265,12 +277,12 @@ class SessionManager:
         Returns:
             Number of sessions evicted.
         """
-        now = datetime.now(UTC)
+        now = self._clock()
         expired_ids = []
 
         for session_id, session in self._sessions.items():
             idle_time = now - session.last_accessed
-            if idle_time > self.session_ttl:
+            if idle_time > self._session_ttl_seconds:
                 expired_ids.append(session_id)
 
         for session_id in expired_ids:
