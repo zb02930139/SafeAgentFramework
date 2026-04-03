@@ -209,14 +209,17 @@ class AuditLogger:
         Yields:
             :class:`AuditEntry` objects in file order.
         """
-        if not self._log_path.exists():
-            return
-
         # Snapshot file contents under the lock. The lock is released as soon
         # as the file is closed — parsing happens entirely outside the lock.
+        # FileNotFoundError is caught here to handle the case where the file
+        # is deleted between the existence check (now done via try/except)
+        # and the open() call, eliminating a TOCTOU race condition.
         with self._lock:
-            with self._log_path.open(encoding="utf-8") as fh:
-                raw_lines = fh.readlines()
+            try:
+                with self._log_path.open(encoding="utf-8") as fh:
+                    raw_lines = fh.readlines()
+            except FileNotFoundError:
+                raw_lines = []
 
         count = 0
         for raw in raw_lines:

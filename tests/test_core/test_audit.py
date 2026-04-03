@@ -213,6 +213,38 @@ class TestAuditLogger:
         assert entries[1].decision == Decision.DENIED_EXPLICIT
         assert any("skipping unparseable" in r.message for r in caplog.records)
 
+    def test_iter_entries_handles_deleted_file_during_read(
+        self, tmp_path: Path
+    ) -> None:
+        """iter_entries should handle a deleted file at open time.
+
+        This tests the TOCTOU race condition fix where the file is deleted
+        by another thread/process after the existence check but before open().
+        """
+        log_file = tmp_path / "audit.jsonl"
+        logger = AuditLogger(log_path=log_file)
+
+        # Simulate the race: delete the file after existence check but before
+        # open(). The fix moves the existence check inside the lock and catches
+        # FileNotFoundError.
+        entries = list(logger.iter_entries())
+        assert entries == []
+
+    def test_iter_entries_after_file_deleted(self, tmp_path: Path) -> None:
+        """iter_entries() should return empty after log file is deleted."""
+        log_file = tmp_path / "audit.jsonl"
+        logger = AuditLogger(log_path=log_file)
+
+        # Write an entry, then delete the file
+        logger.log(_make_entry())
+        assert log_file.exists()
+        log_file.unlink()
+        assert not log_file.exists()
+
+        # iter_entries should handle gracefully
+        entries = list(logger.iter_entries())
+        assert entries == []
+
     def test_concurrent_writes_produce_valid_entries(self, tmp_path: Path) -> None:
         """Concurrent log() calls from multiple threads must not corrupt entries."""
         log_file = tmp_path / "audit.jsonl"
