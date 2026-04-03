@@ -28,6 +28,54 @@ from safe_agent.modules.registry import ModuleRegistry
 logger = logging.getLogger(__name__)
 
 
+def _trim_messages_preserve_pairs(session: Session) -> None:
+    """Trim session messages to max_messages, preserving tool call/result pairs.
+
+    When trimming would split an assistant message with tool_calls from its
+    corresponding tool result messages, we keep the entire group to maintain
+    conversation integrity and avoid API errors.
+    """
+    max_msgs = session.max_messages
+    if len(session.messages) <= max_msgs:
+        return
+
+    # Find the safe trim point that doesn't split tool call/result pairs
+    # Look for the earliest index where we can cut without orphaning tool results
+    excess = len(session.messages) - max_msgs
+    trim_index = excess
+
+    # Walk forward from the trim point to find a safe boundary
+    # A safe boundary is after any tool result that follows an assistant tool_calls
+    while trim_index < len(session.messages):
+        msg = session.messages[trim_index]
+        # If this message is a tool result, we need to keep the previous assistant's
+        # tool_calls, so back up to include that assistant message
+        if msg.get("role") == "tool" and trim_index > 0:
+            # Find the assistant message with tool_calls that precedes this tool
+            prev_idx = trim_index - 1
+            while (
+                prev_idx >= 0 and session.messages[prev_idx].get("role") != "assistant"
+            ):
+                prev_idx -= 1
+            if prev_idx >= 0 and session.messages[prev_idx].get("tool_calls"):
+                # This tool belongs to an assistant tool_calls, include the assistant
+                trim_index = prev_idx
+                break
+        # If this is a user message, it's a safe boundary
+        if msg.get("role") == "user":
+            break
+        # Otherwise continue to next message
+        trim_index += 1
+
+    # Ensure we don't trim more than we need to
+    if trim_index > excess:
+        trim_index = excess
+
+    # Actually trim the messages
+    if trim_index > 0:
+        del session.messages[:trim_index]
+
+
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
     """Return a copy of *messages* with tool names sanitized for LLM providers.
 
@@ -175,11 +223,11 @@ class EventLoop:
                         session.messages.append(tool_msg)
 
                 elif response.content is not None:
-                    # Content-only response (no tool_calls) - return immediately
+                    # Content-only response (no tool_calls) - append and break loop
                     session.messages.append(
                         {"role": "assistant", "content": response.content}
                     )
-                    return response.content
+                    break
 
                 turn_count += 1
                 if turn_count >= self._max_turns:
@@ -190,4 +238,12 @@ class EventLoop:
                     session.messages.append(
                         {"role": "assistant", "content": final_text}
                     )
-                    return final_text
+                    break
+
+            # Apply trimming once at the end of the turn, preserving
+            # tool call/result pairs
+            _trim_messages_preserve_pairs(session)
+
+            # Return the last assistant message content
+            last_msg = session.messages[-1]
+            return str(last_msg.get("content", ""))

@@ -32,6 +32,7 @@ class Session(BaseModel):
     Attributes:
         id: Unique session identifier.
         messages: Conversation history for the session.
+        max_messages: Maximum messages to retain (oldest trimmed first).
         metadata: Arbitrary session-scoped metadata.
         created_at: Timestamp when the session was created.
         last_accessed: Timestamp when the session was last accessed.
@@ -39,6 +40,7 @@ class Session(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     messages: list[dict] = Field(default_factory=list)
+    max_messages: int = Field(default=1000, gt=0)
     metadata: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_accessed: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -120,7 +122,7 @@ class SessionManager:
             while len(self._sessions) >= self.max_sessions:
                 self._evict_lru()
 
-            session = Session()
+            session = Session(max_messages=self.max_messages)
             self._sessions[session.id] = session
             # Move to end (most recently used)
             self._sessions.move_to_end(session.id)
@@ -195,9 +197,9 @@ class SessionManager:
 
             session.messages.append(message)
 
-            if trim and len(session.messages) > self.max_messages:
+            if trim and len(session.messages) > session.max_messages:
                 # Trim oldest messages in-place (keep most recent max_messages)
-                excess = len(session.messages) - self.max_messages
+                excess = len(session.messages) - session.max_messages
                 del session.messages[:excess]
 
             return session
