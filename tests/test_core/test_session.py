@@ -16,11 +16,28 @@
 """Tests for Session and SessionManager with TTL and eviction."""
 
 import threading
-import time
 from datetime import timedelta
 from uuid import UUID
 
 from safe_agent.core import SessionManager
+
+
+class FakeClock:
+    """A fake clock for deterministic testing of TTL behavior.
+
+    Implements the clock protocol (Callable[[], float]) used by SessionManager.
+    Time is controlled manually via advance() instead of relying on real time.
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self._time = start
+
+    def __call__(self) -> float:
+        return self._time
+
+    def advance(self, seconds: float) -> None:
+        """Advance the fake clock by the given number of seconds."""
+        self._time += seconds
 
 
 class TestSessionBasics:
@@ -95,7 +112,8 @@ class TestSessionTTL:
         assert manager.session_ttl == timedelta(seconds=1800)
 
     def test_expired_session_not_returned(self) -> None:
-        manager = SessionManager(session_ttl=0.1)  # 100ms TTL
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)  # 100ms TTL
 
         session = manager.create()
         session_id = session.id
@@ -103,48 +121,51 @@ class TestSessionTTL:
         # Session should be present initially
         assert manager.get(session_id) is not None
 
-        # Wait for TTL to expire
-        time.sleep(0.15)
+        # Advance time past TTL
+        fake_time.advance(0.15)  # 150ms
 
         # Expired session should be cleaned up on access
         assert manager.get(session_id) is None
 
     def test_expired_sessions_removed_on_list_active(self) -> None:
-        manager = SessionManager(session_ttl=0.1)  # 100ms TTL
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)  # 100ms TTL
 
         session = manager.create()
 
         # Session should be in list initially
         assert session.id in manager.list_active()
 
-        # Wait for TTL to expire
-        time.sleep(0.15)
+        # Advance time past TTL
+        fake_time.advance(0.15)  # 150ms
 
         # Should be cleaned up on list_active
         assert session.id not in manager.list_active()
 
     def test_accessed_session_not_expired(self) -> None:
-        manager = SessionManager(session_ttl=0.2)  # 200ms TTL
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.2, clock=fake_time)  # 200ms TTL
 
         session = manager.create()
         session_id = session.id
 
         # Keep accessing the session to keep it alive
         for _ in range(3):
-            time.sleep(0.1)
+            fake_time.advance(0.1)  # Advance 100ms each time
             assert manager.get(session_id) is not None
 
         # Should still exist after 300ms total because we kept accessing
         assert manager.get(session_id) is not None
 
     def test_last_accessed_updated_on_get(self) -> None:
-        manager = SessionManager(session_ttl=3600)
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=3600, clock=fake_time)
 
         session = manager.create()
         initial_access = session.last_accessed
 
-        # Small delay
-        time.sleep(0.01)
+        # Advance time
+        fake_time.advance(0.01)
 
         manager.get(session.id)
         assert session.last_accessed > initial_access
@@ -265,13 +286,14 @@ class TestEvictionCallback:
 
     def test_eviction_callback_on_ttl_expiry(self) -> None:
         evicted = []
-        manager = SessionManager(session_ttl=0.1)
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)
         manager.set_eviction_callback(lambda s: evicted.append(s.id))
 
         session = manager.create()
 
-        # Wait for TTL
-        time.sleep(0.15)
+        # Advance time past TTL
+        fake_time.advance(0.15)  # 150ms
 
         # Trigger cleanup via get
         manager.get(session.id)
@@ -502,24 +524,26 @@ class TestCleanupConsistency:
     """Tests for cleanup behavior across all methods."""
 
     def test_count_triggers_cleanup(self) -> None:
-        manager = SessionManager(session_ttl=0.1)
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)
 
         manager.create()
 
-        # Wait for TTL
-        time.sleep(0.15)
+        # Advance time past TTL
+        fake_time.advance(0.15)  # 150ms
 
         # count() should trigger cleanup
         assert manager.count() == 0
 
     def test_close_triggers_cleanup(self) -> None:
-        manager = SessionManager(session_ttl=0.1)
+        fake_time = FakeClock(start=0.0)
+        manager = SessionManager(session_ttl=0.1, clock=fake_time)
 
         session1 = manager.create()
         _ = manager.create()
 
-        # Wait for TTL
-        time.sleep(0.15)
+        # Advance time past TTL
+        fake_time.advance(0.15)  # 150ms
 
         # close() should trigger cleanup
         manager.close(session1.id)
